@@ -7,9 +7,20 @@ A desktop application for visualizing and planning gallery wall arrangements. Us
 - **Wall Setup**: Create wall templates with custom dimensions and colors
 - **Art Preparation**: Import artwork images and set real-world dimensions
 - **Framing Studio**: Configure frames and mats with customizable sizes, colors, and shadows
-- **Arrangement Workspace**: Drag and drop artwork to create the perfect gallery wall layout
+  - Live preview updates as you adjust settings
+  - Color pickers for frames and mats
+  - Shadow controls for realistic depth
+  - Visual indicators for framed artwork
+- **Arrangement Workspace**: Interactive canvas for creating gallery wall layouts
+  - **Mousewheel zoom** - Zoom in/out with scroll wheel
+  - **Space + drag panning** - Navigate large canvases easily
+  - **Drag and drop** - Position artwork precisely
+  - **Selection highlights** - Visual feedback for selected items
+  - **Keyboard shortcuts** - Ctrl+S to save, Delete to remove, arrows to nudge
+  - **Grid overlay** - Optional alignment grid
+  - **Right-click context menu** - Quick actions
 - **Export**: Save high-resolution images of your arrangements
-- **Project Management**: Save and load your gallery wall projects
+- **Project Management**: Save and load your gallery wall projects with all artwork and configurations
 
 ## Requirements
 
@@ -81,11 +92,15 @@ python main.py
 
 5. **Arrange Your Gallery Wall**
    - Click the "+" button next to artwork in the library to add it to the wall
-   - Drag artwork pieces to position them
-   - Use zoom controls (+/-) to adjust view
-   - Toggle grid for alignment assistance
-   - Click "Save Project" to save your work
-   - Click "Export Image" to create a high-resolution render
+   - **Click and drag** artwork pieces to position them
+   - **Mousewheel** to zoom in/out
+   - **Space + drag** to pan around the canvas
+   - **Click** to select artwork (shows blue highlight)
+   - **Delete key** or right-click menu to remove selected artwork
+   - **Arrow keys** to nudge selected artwork by 1cm
+   - Toggle **Grid** for alignment assistance
+   - Click **"💾 Save"** to save your work (or press Ctrl+S)
+   - Click **"📤 Export"** to create a high-resolution image
 
 ### Project Files
 
@@ -156,14 +171,23 @@ You can customize various settings in `config.py`:
 - Check available disk space
 - Try exporting at a lower resolution
 
+## Keyboard Shortcuts
+
+- **Ctrl+S** - Save project
+- **Delete** or **Backspace** - Delete selected artwork
+- **Space + Drag** - Pan canvas
+- **Arrow Keys** - Nudge selected artwork (1cm increments)
+- **Mouse Wheel** - Zoom in/out
+
 ## Current Limitations
 
-This is the MVP (Minimum Viable Product) version with the following limitations:
+This is an enhanced MVP (Minimum Viable Product) version with the following limitations:
 
 - **Photo mode**: Wall photo import with perspective correction is not yet implemented
 - **Advanced editing**: White balance adjustments and perspective correction for artwork are not yet available
 - **Rotation**: Artwork rotation in workspace is not yet implemented
-- **Advanced features**: Guidelines, alignment tools, and multi-select are planned for future releases
+- **Advanced features**: Alignment tools, snapping, and multi-select are planned for future releases
+- **Undo/Redo**: Not yet implemented (changes are immediate)
 
 ## Future Enhancements
 

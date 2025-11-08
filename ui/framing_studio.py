@@ -36,6 +36,22 @@ class FramingStudioScreen:
         """Initialize frame configuration for selected artwork"""
         if self.selected_artwork.frame_config:
             self.current_frame_config = self.selected_artwork.frame_config
+            # Load existing config into UI
+            if hasattr(self, 'mat_enabled_var'):
+                self.mat_enabled_var.set(self.current_frame_config.mat is not None)
+                if self.current_frame_config.mat:
+                    self.mat_width_entry.delete(0, 'end')
+                    self.mat_width_entry.insert(0, str(self.current_frame_config.mat.top_width_cm))
+                    self.mat_color = self.current_frame_config.mat.color
+                    self.mat_color_btn.configure(fg_color=self.mat_color)
+
+                self.frame_width_entry.delete(0, 'end')
+                self.frame_width_entry.insert(0, str(self.current_frame_config.frame_width_cm))
+                self.frame_color = self.current_frame_config.frame_color
+                self.frame_color_btn.configure(fg_color=self.frame_color)
+
+                self.frame_shadow_var.set(self.current_frame_config.frame_shadow_enabled)
+                self.mat_shadow_var.set(self.current_frame_config.mat_shadow_enabled)
         else:
             # Create default frame config
             self.current_frame_config = FrameConfig(
@@ -73,16 +89,10 @@ class FramingStudioScreen:
         title.pack(pady=10)
 
         # Scrollable list
-        list_frame = ctk.CTkScrollableFrame(parent)
-        list_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        self.list_frame = ctk.CTkScrollableFrame(parent)
+        self.list_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        for artwork in self.app.artworks:
-            btn = ctk.CTkButton(
-                list_frame,
-                text=artwork.name,
-                command=lambda a=artwork: self._select_artwork(a)
-            )
-            btn.pack(fill="x", pady=2, padx=2)
+        self._refresh_artwork_list()
 
         # Bottom buttons
         btn_frame = ctk.CTkFrame(parent)
@@ -133,18 +143,18 @@ class FramingStudioScreen:
 
         self.mat_width_entry = ctk.CTkEntry(controls_frame, width=150)
         self.mat_width_entry.insert(0, "3.0")
-        self.mat_width_entry.bind('<Return>', lambda e: self._update_preview())
+        self.mat_width_entry.bind('<KeyRelease>', lambda e: self._update_preview())
         self.mat_width_entry.pack(pady=5)
 
         # Mat color
         self.mat_color = "#FFFFFF"
-        btn_mat_color = ctk.CTkButton(
+        self.mat_color_btn = ctk.CTkButton(
             controls_frame,
             text="Mat Color",
             command=self._choose_mat_color,
             fg_color=self.mat_color
         )
-        btn_mat_color.pack(pady=5)
+        self.mat_color_btn.pack(pady=5)
 
         # Frame section
         frame_label = ctk.CTkLabel(controls_frame, text="Frame", font=("Arial", 12, "bold"))
@@ -156,26 +166,76 @@ class FramingStudioScreen:
 
         self.frame_width_entry = ctk.CTkEntry(controls_frame, width=150)
         self.frame_width_entry.insert(0, "2.0")
-        self.frame_width_entry.bind('<Return>', lambda e: self._update_preview())
+        self.frame_width_entry.bind('<KeyRelease>', lambda e: self._update_preview())
         self.frame_width_entry.pack(pady=5)
 
         # Frame color
         self.frame_color = "#000000"
-        btn_frame_color = ctk.CTkButton(
+        self.frame_color_btn = ctk.CTkButton(
             controls_frame,
             text="Frame Color",
             command=self._choose_frame_color,
             fg_color=self.frame_color
         )
-        btn_frame_color.pack(pady=5)
+        self.frame_color_btn.pack(pady=5)
 
-        # Apply button
-        btn_apply = ctk.CTkButton(
+        # Shadow toggles
+        shadow_label = ctk.CTkLabel(controls_frame, text="Shadows", font=("Arial", 12, "bold"))
+        shadow_label.pack(pady=(20, 5))
+
+        self.frame_shadow_var = ctk.BooleanVar(value=True)
+        frame_shadow_check = ctk.CTkCheckBox(
             controls_frame,
-            text="Apply to Artwork",
-            command=self._apply_frame_config
+            text="Frame Shadow",
+            variable=self.frame_shadow_var,
+            command=self._update_preview
         )
-        btn_apply.pack(pady=20)
+        frame_shadow_check.pack(pady=5)
+
+        self.mat_shadow_var = ctk.BooleanVar(value=True)
+        mat_shadow_check = ctk.CTkCheckBox(
+            controls_frame,
+            text="Mat Shadow",
+            variable=self.mat_shadow_var,
+            command=self._update_preview
+        )
+        mat_shadow_check.pack(pady=5)
+
+        # Apply and preview buttons
+        btn_frame = ctk.CTkFrame(controls_frame)
+        btn_frame.pack(pady=20, fill="x")
+
+        btn_preview = ctk.CTkButton(
+            btn_frame,
+            text="Refresh Preview",
+            command=self._update_preview
+        )
+        btn_preview.pack(pady=5, fill="x")
+
+        btn_apply = ctk.CTkButton(
+            btn_frame,
+            text="Apply to Artwork",
+            command=self._apply_frame_config,
+            fg_color="#2196F3"
+        )
+        btn_apply.pack(pady=5, fill="x")
+
+    def _refresh_artwork_list(self):
+        """Refresh the artwork list"""
+        # Clear existing
+        for widget in self.list_frame.winfo_children():
+            widget.destroy()
+
+        # Add artwork buttons
+        for artwork in self.app.artworks:
+            # Add indicator if artwork has frame
+            frame_indicator = " [Framed]" if artwork.frame_config else ""
+            btn = ctk.CTkButton(
+                self.list_frame,
+                text=f"{artwork.name}{frame_indicator}",
+                command=lambda a=artwork: self._select_artwork(a)
+            )
+            btn.pack(fill="x", pady=2, padx=2)
 
     def _select_artwork(self, artwork):
         """Select artwork for framing"""
@@ -192,6 +252,7 @@ class FramingStudioScreen:
         color = colorchooser.askcolor(title="Choose Mat Color", initialcolor=self.mat_color)
         if color[1]:
             self.mat_color = color[1]
+            self.mat_color_btn.configure(fg_color=self.mat_color)
             self._update_preview()
 
     def _choose_frame_color(self):
@@ -199,6 +260,7 @@ class FramingStudioScreen:
         color = colorchooser.askcolor(title="Choose Frame Color", initialcolor=self.frame_color)
         if color[1]:
             self.frame_color = color[1]
+            self.frame_color_btn.configure(fg_color=self.frame_color)
             self._update_preview()
 
     def _update_preview(self):
@@ -225,7 +287,9 @@ class FramingStudioScreen:
             frame_config = FrameConfig(
                 mat=mat_config,
                 frame_width_cm=frame_width,
-                frame_color=self.frame_color
+                frame_color=self.frame_color,
+                frame_shadow_enabled=self.frame_shadow_var.get(),
+                mat_shadow_enabled=self.mat_shadow_var.get()
             )
 
             # Render preview
@@ -281,11 +345,17 @@ class FramingStudioScreen:
             frame_config = FrameConfig(
                 mat=mat_config,
                 frame_width_cm=frame_width,
-                frame_color=self.frame_color
+                frame_color=self.frame_color,
+                frame_shadow_enabled=self.frame_shadow_var.get(),
+                mat_shadow_enabled=self.mat_shadow_var.get()
             )
 
             # Apply to artwork
             self.selected_artwork.frame_config = frame_config
+
+            # Update the artwork list to show it's framed
+            self._refresh_artwork_list()
+
             self.app._show_info("Frame configuration applied!")
 
         except ValueError:
