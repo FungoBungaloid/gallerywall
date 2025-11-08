@@ -85,7 +85,7 @@ class FrameRenderer:
         shadow_offset_y: float,
         scale: float
     ) -> Image.Image:
-        """Add mat border around image"""
+        """Add mat border around image with inner shadow"""
         # Calculate mat widths in pixels
         top_px = real_to_pixels(mat_config.top_width_cm, scale)
         bottom_px = real_to_pixels(mat_config.bottom_width_cm, scale)
@@ -99,28 +99,62 @@ class FrameRenderer:
         # Create mat layer
         mat_layer = Image.new('RGBA', (new_width, new_height), FrameRenderer._hex_to_rgba(mat_config.color))
 
-        # Add shadow from mat onto artwork if enabled
-        if shadow_enabled:
-            # Create shadow mask
-            shadow_mask = Image.new('L', image.size, 0)
-            shadow_draw = ImageDraw.Draw(shadow_mask)
-            shadow_draw.rectangle([0, 0, image.width, image.height], fill=255)
-
-            # Apply blur
-            shadow_mask = shadow_mask.filter(ImageFilter.GaussianBlur(radius=shadow_blur))
-
-            # Create shadow layer
-            shadow_layer = Image.new('RGBA', image.size, (0, 0, 0, 0))
-            shadow_alpha = shadow_mask.point(lambda x: int(x * shadow_opacity))
-            shadow_layer.putalpha(shadow_alpha)
-
-            # Composite shadow onto artwork
-            shadow_composite = Image.new('RGBA', image.size, (0, 0, 0, 0))
-            shadow_composite.paste(shadow_layer, (int(shadow_offset_x), int(shadow_offset_y)), shadow_layer)
-            image = Image.alpha_composite(shadow_composite, image)
-
         # Paste artwork onto mat
         mat_layer.paste(image, (left_px, top_px), image)
+
+        # Add inset shadow (mat edge shadow on artwork) if enabled
+        if shadow_enabled and shadow_blur > 0:
+            # Create an inset shadow effect
+            shadow_size = int(shadow_blur * 3)
+
+            # Create shadow overlay
+            shadow_overlay = Image.new('RGBA', (new_width, new_height), (0, 0, 0, 0))
+            shadow_draw = ImageDraw.Draw(shadow_overlay)
+
+            # Draw semi-transparent black rectangles for each edge shadow
+            alpha = int(255 * shadow_opacity)
+
+            # Top shadow
+            if top_px > 0:
+                for i in range(shadow_size):
+                    fade = int(alpha * (1 - i / shadow_size))
+                    shadow_draw.rectangle(
+                        [left_px, top_px + i, left_px + image.width, top_px + i + 1],
+                        fill=(0, 0, 0, fade)
+                    )
+
+            # Left shadow
+            if left_px > 0:
+                for i in range(shadow_size):
+                    fade = int(alpha * (1 - i / shadow_size))
+                    shadow_draw.rectangle(
+                        [left_px + i, top_px, left_px + i + 1, top_px + image.height],
+                        fill=(0, 0, 0, fade)
+                    )
+
+            # Right shadow
+            if right_px > 0:
+                for i in range(shadow_size):
+                    fade = int(alpha * (1 - i / shadow_size))
+                    shadow_draw.rectangle(
+                        [left_px + image.width - i - 1, top_px, left_px + image.width - i, top_px + image.height],
+                        fill=(0, 0, 0, fade)
+                    )
+
+            # Bottom shadow
+            if bottom_px > 0:
+                for i in range(shadow_size):
+                    fade = int(alpha * (1 - i / shadow_size))
+                    shadow_draw.rectangle(
+                        [left_px, top_px + image.height - i - 1, left_px + image.width, top_px + image.height - i],
+                        fill=(0, 0, 0, fade)
+                    )
+
+            # Apply blur to soften
+            shadow_overlay = shadow_overlay.filter(ImageFilter.GaussianBlur(radius=shadow_blur / 2))
+
+            # Composite shadow onto mat
+            mat_layer = Image.alpha_composite(mat_layer, shadow_overlay)
 
         return mat_layer
 
@@ -136,7 +170,7 @@ class FrameRenderer:
         shadow_offset_y: float,
         scale: float
     ) -> Image.Image:
-        """Add frame border around image"""
+        """Add frame border around image with inner shadow"""
         # Calculate frame width in pixels
         frame_px = real_to_pixels(frame_width_cm, scale)
 
@@ -150,16 +184,65 @@ class FrameRenderer:
         # Paste image onto frame
         frame_layer.paste(image, (frame_px, frame_px), image)
 
-        # Add drop shadow if enabled
+        # Add inset shadow (frame edge shadow on mat/artwork) if enabled
+        if shadow_enabled and shadow_blur > 0:
+            shadow_size = int(shadow_blur * 3)
+
+            # Create shadow overlay
+            shadow_overlay = Image.new('RGBA', (new_width, new_height), (0, 0, 0, 0))
+            shadow_draw = ImageDraw.Draw(shadow_overlay)
+
+            # Draw semi-transparent black rectangles for inset shadow
+            alpha = int(255 * shadow_opacity)
+
+            # Top shadow
+            for i in range(shadow_size):
+                fade = int(alpha * (1 - i / shadow_size))
+                shadow_draw.rectangle(
+                    [frame_px, frame_px + i, frame_px + image.width, frame_px + i + 1],
+                    fill=(0, 0, 0, fade)
+                )
+
+            # Left shadow
+            for i in range(shadow_size):
+                fade = int(alpha * (1 - i / shadow_size))
+                shadow_draw.rectangle(
+                    [frame_px + i, frame_px, frame_px + i + 1, frame_px + image.height],
+                    fill=(0, 0, 0, fade)
+                )
+
+            # Right shadow
+            for i in range(shadow_size):
+                fade = int(alpha * (1 - i / shadow_size))
+                shadow_draw.rectangle(
+                    [frame_px + image.width - i - 1, frame_px, frame_px + image.width - i, frame_px + image.height],
+                    fill=(0, 0, 0, fade)
+                )
+
+            # Bottom shadow
+            for i in range(shadow_size):
+                fade = int(alpha * (1 - i / shadow_size))
+                shadow_draw.rectangle(
+                    [frame_px, frame_px + image.height - i - 1, frame_px + image.width, frame_px + image.height - i],
+                    fill=(0, 0, 0, fade)
+                )
+
+            # Apply blur to soften
+            shadow_overlay = shadow_overlay.filter(ImageFilter.GaussianBlur(radius=shadow_blur / 2))
+
+            # Composite shadow onto frame
+            frame_layer = Image.alpha_composite(frame_layer, shadow_overlay)
+
+        # Add drop shadow (outer shadow for entire framed piece) if enabled
         if shadow_enabled:
-            # Create larger canvas for shadow
+            # Create larger canvas for drop shadow
             shadow_canvas = Image.new('RGBA',
                                      (new_width + int(shadow_blur * 4),
                                       new_height + int(shadow_blur * 4)),
                                      (0, 0, 0, 0))
 
             # Create shadow
-            shadow_img = Image.new('RGBA', (new_width, new_height), (0, 0, 0, int(255 * shadow_opacity)))
+            shadow_img = Image.new('RGBA', (new_width, new_height), (0, 0, 0, int(255 * shadow_opacity * 0.6)))
 
             # Position shadow with offset
             shadow_x = int(shadow_blur * 2 + shadow_offset_x)

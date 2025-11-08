@@ -50,6 +50,8 @@ class ArtEditorScreen:
 
         # Canvas state
         self.canvas_scale = 1.0
+        self.canvas_offset_x = 0
+        self.canvas_offset_y = 0
 
         # Edit mode
         self.edit_mode = "perspective"  # 'perspective', 'crop', 'adjust'
@@ -689,12 +691,12 @@ class ArtEditorScreen:
         self.edit_canvas.delete("all")
 
         # Center image
-        x_offset = (canvas_width - new_width) // 2
-        y_offset = (canvas_height - new_height) // 2
+        self.canvas_offset_x = (canvas_width - new_width) // 2
+        self.canvas_offset_y = (canvas_height - new_height) // 2
 
         # Draw image
         self.edit_canvas.create_image(
-            x_offset, y_offset,
+            self.canvas_offset_x, self.canvas_offset_y,
             image=self.preview_image,
             anchor="nw",
             tags="preview"
@@ -702,9 +704,9 @@ class ArtEditorScreen:
 
         # Draw overlays based on mode
         if self.mode_var.get() == "perspective":
-            self._draw_perspective_markers(x_offset, y_offset)
+            self._draw_perspective_markers(self.canvas_offset_x, self.canvas_offset_y)
         elif self.mode_var.get() == "crop":
-            self._draw_crop_markers(x_offset, y_offset)
+            self._draw_crop_markers(self.canvas_offset_x, self.canvas_offset_y)
 
     def _draw_perspective_markers(self, offset_x, offset_y):
         """Draw corner markers for perspective correction"""
@@ -802,8 +804,8 @@ class ArtEditorScreen:
             # Check if clicking on a corner
             radius = 15
             for i, (x, y) in enumerate(self.corner_points):
-                canvas_x = (self.edit_canvas.winfo_width() - self.preview_image.width()) // 2 + x * self.canvas_scale
-                canvas_y = (self.edit_canvas.winfo_height() - self.preview_image.height()) // 2 + y * self.canvas_scale
+                canvas_x = self.canvas_offset_x + x * self.canvas_scale
+                canvas_y = self.canvas_offset_y + y * self.canvas_scale
 
                 if abs(event.x - canvas_x) < radius and abs(event.y - canvas_y) < radius:
                     self.dragging_point = i
@@ -811,15 +813,12 @@ class ArtEditorScreen:
 
         elif self.mode_var.get() == "crop":
             # Check if clicking on crop handles
-            x_offset = (self.edit_canvas.winfo_width() - self.preview_image.width()) // 2
-            y_offset = (self.edit_canvas.winfo_height() - self.preview_image.height()) // 2
-
             if self.crop_box:
                 x1, y1, x2, y2 = self.crop_box
-                canvas_x1 = x_offset + x1 * self.canvas_scale
-                canvas_y1 = y_offset + y1 * self.canvas_scale
-                canvas_x2 = x_offset + x2 * self.canvas_scale
-                canvas_y2 = y_offset + y2 * self.canvas_scale
+                canvas_x1 = self.canvas_offset_x + x1 * self.canvas_scale
+                canvas_y1 = self.canvas_offset_y + y1 * self.canvas_scale
+                canvas_x2 = self.canvas_offset_x + x2 * self.canvas_scale
+                canvas_y2 = self.canvas_offset_y + y2 * self.canvas_scale
 
                 handle_size = 15
                 corners = [
@@ -837,13 +836,9 @@ class ArtEditorScreen:
     def _on_canvas_drag(self, event):
         """Handle canvas drag"""
         if self.mode_var.get() == "perspective" and self.dragging_point is not None:
-            # Update corner position
-            x_offset = (self.edit_canvas.winfo_width() - self.preview_image.width()) // 2
-            y_offset = (self.edit_canvas.winfo_height() - self.preview_image.height()) // 2
-
             # Convert to image coordinates
-            img_x = (event.x - x_offset) / self.canvas_scale
-            img_y = (event.y - y_offset) / self.canvas_scale
+            img_x = (event.x - self.canvas_offset_x) / self.canvas_scale
+            img_y = (event.y - self.canvas_offset_y) / self.canvas_scale
 
             # Clamp to image bounds
             height, width = self.original_photo.shape[:2]
@@ -854,12 +849,9 @@ class ArtEditorScreen:
             self._update_canvas_preview()
 
         elif self.mode_var.get() == "crop" and self.dragging_crop:
-            # Update crop box
-            x_offset = (self.edit_canvas.winfo_width() - self.preview_image.width()) // 2
-            y_offset = (self.edit_canvas.winfo_height() - self.preview_image.height()) // 2
-
-            img_x = (event.x - x_offset) / self.canvas_scale
-            img_y = (event.y - y_offset) / self.canvas_scale
+            # Convert to image coordinates
+            img_x = (event.x - self.canvas_offset_x) / self.canvas_scale
+            img_y = (event.y - self.canvas_offset_y) / self.canvas_scale
 
             # Clamp to image bounds
             height, width = self.edited_photo.shape[:2]
