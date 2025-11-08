@@ -4,13 +4,22 @@ A desktop application for visualizing and planning gallery wall arrangements. Us
 
 ## Features
 
-- **Wall Setup**: Create wall templates with custom dimensions and colors
-- **Art Preparation**: Import artwork images and set real-world dimensions
+- **Wall Setup**: Create wall templates with custom dimensions and colors, OR import wall photos with 4-point perspective correction
+  - Interactive corner dragging for perspective correction
+  - Live preview of original and corrected photos
+  - Support for JPEG, PNG, BMP wall photos
+- **Art Preparation**: Import artwork images with full visual preview and set real-world dimensions
+  - Thumbnail previews in sidebar
+  - Large image preview when editing
+  - Auto-calculated dimensions maintaining aspect ratio
+  - Delete artwork functionality
 - **Framing Studio**: Configure frames and mats with customizable sizes, colors, and shadows
   - Live preview updates as you adjust settings
   - Color pickers for frames and mats
   - Shadow controls for realistic depth
   - Visual indicators for framed artwork
+  - **Frame templates system** - Save and reuse frame configurations
+  - Bulk apply templates to all artworks
 - **Arrangement Workspace**: Professional-grade interactive canvas for creating gallery wall layouts
   - **Multi-select** - Ctrl+Click to select multiple artworks, Ctrl+A to select all
   - **Undo/Redo** - Full history with Ctrl+Z and Ctrl+Y (50 action limit)
@@ -27,7 +36,12 @@ A desktop application for visualizing and planning gallery wall arrangements. Us
   - **Grid overlay** - Optional alignment grid with configurable spacing
   - **Z-order control** - Bring to front or send to back via right-click
   - **Right-click context menu** - Quick access to all actions
+  - **Multiple workspace variations** - Create, duplicate, rename, and switch between different arrangements
 - **Export**: Save high-resolution images of your arrangements
+  - Enhanced export dialog with format selection (PNG/JPEG)
+  - DPI presets (72/150/300) or custom dimensions
+  - JPEG quality control
+  - Live preview of file size and resolution
 - **Project Management**: Save and load your gallery wall projects with all artwork and configurations
 
 ## Requirements
@@ -214,26 +228,24 @@ You can customize various settings in `config.py`:
 
 This is a professional-grade application with most core features implemented. Remaining limitations:
 
-- **Photo mode**: Wall photo import with perspective correction is not yet implemented
-- **Advanced artwork editing**: White balance adjustments, perspective correction, and rotation for artwork are not yet available
+- **Advanced artwork editing**: White balance adjustments and perspective correction for individual artworks are not yet available
 - **Artwork rotation**: Rotation of placed artwork in workspace is not yet implemented
-- **Frame templates**: Save/load frame configurations as templates is not yet implemented
-- **Multiple workspaces**: Creating workspace variations is not yet implemented
+- **Advanced export options**: Measurement overlays on exported images not yet available
 
 ## Future Enhancements
 
 Planned features for upcoming releases:
 
-- Wall photo import with 4-point perspective correction
-- Advanced artwork editing (white balance, rotation, cropping)
-- Artwork rotation in workspace
-- Frame templates and bulk framing
-- Multiple workspace variations
-- Enhanced export options (custom DPI, measurement overlays)
-- Frame cost calculator
+- Advanced artwork editing (white balance sliders, contrast, saturation)
+- Perspective correction for individual artwork photos
+- Artwork rotation in workspace (90° and free rotation)
+- Measurement overlays on exported images
+- Frame cost calculator (price per linear unit)
 - AR preview via phone camera
-- Non-rectangular artwork support
-- Lighting simulation
+- Non-rectangular artwork support (circles, ovals)
+- Lighting simulation for gallery planning
+- Batch import with naming patterns
+- Cloud sync or export options
 
 ## Development
 
