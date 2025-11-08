@@ -1,0 +1,13 @@
+# Gallery Wall Visualizer - Dependencies
+
+# Core Framework
+customtkinter>=5.2.0
+tkinterdnd2>=0.3.0
+
+# Image Processing
+Pillow>=10.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Data handling (built-in with Python 3.11+)
+# json, pathlib, dataclasses are part of standard library
