@@ -11,14 +11,22 @@ A desktop application for visualizing and planning gallery wall arrangements. Us
   - Color pickers for frames and mats
   - Shadow controls for realistic depth
   - Visual indicators for framed artwork
-- **Arrangement Workspace**: Interactive canvas for creating gallery wall layouts
+- **Arrangement Workspace**: Professional-grade interactive canvas for creating gallery wall layouts
+  - **Multi-select** - Ctrl+Click to select multiple artworks, Ctrl+A to select all
+  - **Undo/Redo** - Full history with Ctrl+Z and Ctrl+Y (50 action limit)
+  - **Alignment tools** - Align left/center/right/top/middle/bottom across selected artworks
+  - **Distribution tools** - Evenly distribute spacing horizontally or vertically
+  - **Draggable guidelines** - Add horizontal/vertical guides and drag to reposition
+  - **Smart snapping** - Snap to grid (10cm) and guidelines (2cm tolerance) with visual feedback
+  - **Measurements mode** - Show distances from edges and between artworks
   - **Mousewheel zoom** - Zoom in/out with scroll wheel
   - **Space + drag panning** - Navigate large canvases easily
   - **Drag and drop** - Position artwork precisely
   - **Selection highlights** - Visual feedback for selected items
-  - **Keyboard shortcuts** - Ctrl+S to save, Delete to remove, arrows to nudge
-  - **Grid overlay** - Optional alignment grid
-  - **Right-click context menu** - Quick actions
+  - **Keyboard shortcuts** - Full keyboard control (see shortcuts section below)
+  - **Grid overlay** - Optional alignment grid with configurable spacing
+  - **Z-order control** - Bring to front or send to back via right-click
+  - **Right-click context menu** - Quick access to all actions
 - **Export**: Save high-resolution images of your arrangements
 - **Project Management**: Save and load your gallery wall projects with all artwork and configurations
 
@@ -93,11 +101,18 @@ python main.py
 5. **Arrange Your Gallery Wall**
    - Click the "+" button next to artwork in the library to add it to the wall
    - **Click and drag** artwork pieces to position them
+   - **Ctrl+Click** to select multiple artworks, **Ctrl+A** to select all
+   - Use **alignment tools** to align selected artworks (left/center/right/top/middle/bottom)
+   - Use **distribution tools** to evenly space 3+ selected artworks
+   - Add **guidelines** (horizontal/vertical) and drag them to reposition
+   - Enable **snap to grid** or **snap to guides** for precise positioning
+   - Toggle **measurements mode** to see distances and spacing
    - **Mousewheel** to zoom in/out
    - **Space + drag** to pan around the canvas
-   - **Click** to select artwork (shows blue highlight)
+   - **Arrow keys** to nudge selected artwork by 1cm (**Shift+Arrow** for 10cm)
    - **Delete key** or right-click menu to remove selected artwork
-   - **Arrow keys** to nudge selected artwork by 1cm
+   - **Ctrl+Z/Ctrl+Y** for undo/redo
+   - Right-click for context menu with bring to front/send to back
    - Toggle **Grid** for alignment assistance
    - Click **"💾 Save"** to save your work (or press Ctrl+S)
    - Click **"📤 Export"** to create a high-resolution image
@@ -134,6 +149,7 @@ gallerywall/
 ├── utils/                       # Utility functions
 │   ├── measurements.py
 │   ├── perspective.py
+│   ├── undo_manager.py
 │   └── file_manager.py
 └── assets/                      # Icons and templates
 ```
@@ -173,21 +189,36 @@ You can customize various settings in `config.py`:
 
 ## Keyboard Shortcuts
 
+### General
 - **Ctrl+S** - Save project
-- **Delete** or **Backspace** - Delete selected artwork
+- **Ctrl+Z** - Undo last action
+- **Ctrl+Y** - Redo last undone action
+
+### Selection
+- **Click** - Select single artwork
+- **Ctrl+Click** - Add/remove artwork from selection
+- **Ctrl+A** - Select all artworks
+
+### Movement
+- **Drag** - Move selected artwork(s)
+- **Arrow Keys** - Nudge selected artwork by 1cm
+- **Shift+Arrow Keys** - Nudge selected artwork by 10cm
+- **Delete** or **Backspace** - Remove selected artwork
+
+### Canvas Navigation
 - **Space + Drag** - Pan canvas
-- **Arrow Keys** - Nudge selected artwork (1cm increments)
+- **Middle Mouse + Drag** - Pan canvas (alternative)
 - **Mouse Wheel** - Zoom in/out
 
 ## Current Limitations
 
-This is an enhanced MVP (Minimum Viable Product) version with the following limitations:
+This is a professional-grade application with most core features implemented. Remaining limitations:
 
 - **Photo mode**: Wall photo import with perspective correction is not yet implemented
-- **Advanced editing**: White balance adjustments and perspective correction for artwork are not yet available
-- **Rotation**: Artwork rotation in workspace is not yet implemented
-- **Advanced features**: Alignment tools, snapping, and multi-select are planned for future releases
-- **Undo/Redo**: Not yet implemented (changes are immediate)
+- **Advanced artwork editing**: White balance adjustments, perspective correction, and rotation for artwork are not yet available
+- **Artwork rotation**: Rotation of placed artwork in workspace is not yet implemented
+- **Frame templates**: Save/load frame configurations as templates is not yet implemented
+- **Multiple workspaces**: Creating workspace variations is not yet implemented
 
 ## Future Enhancements
 
@@ -195,11 +226,14 @@ Planned features for upcoming releases:
 
 - Wall photo import with 4-point perspective correction
 - Advanced artwork editing (white balance, rotation, cropping)
-- Workspace guidelines and snapping
-- Alignment and distribution tools
+- Artwork rotation in workspace
 - Frame templates and bulk framing
 - Multiple workspace variations
 - Enhanced export options (custom DPI, measurement overlays)
+- Frame cost calculator
+- AR preview via phone camera
+- Non-rectangular artwork support
+- Lighting simulation
 
 ## Development
 
