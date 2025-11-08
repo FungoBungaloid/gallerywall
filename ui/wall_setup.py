@@ -8,7 +8,7 @@ import numpy as np
 import cv2
 from models.wall import Wall
 from utils.file_manager import FileManager
-from utils.perspective import apply_perspective_correction
+from utils.perspective import apply_perspective_correction_full_image
 from processors.image_processor import ImageProcessor
 import config
 
@@ -38,6 +38,7 @@ class WallSetupScreen:
         self.corrected_photo = None  # Perspective-corrected photo
         self.photo_path = None
         self.corner_points = []  # List of (x, y) tuples for 4 corners
+        self.rect_bounds = None  # (x, y, width, height) of wall rectangle in corrected image
         self.dragging_point = None
         self.photo_tk = None  # PhotoImage for display
         self.preview_scale = 1.0  # Scale factor for display
@@ -317,8 +318,8 @@ class WallSetupScreen:
             return
 
         try:
-            # Apply correction
-            self.corrected_photo = apply_perspective_correction(
+            # Apply correction with full image preserved
+            self.corrected_photo, self.rect_bounds = apply_perspective_correction_full_image(
                 self.original_photo,
                 self.corner_points,
                 int(self.wall_width_cm * 10),  # Target width in pixels
@@ -327,7 +328,7 @@ class WallSetupScreen:
 
             if self.corrected_photo is not None:
                 self.photo_status.configure(
-                    text="✓ Perspective corrected!",
+                    text="✓ Perspective corrected! (Full image preserved)",
                     text_color="green"
                 )
                 self.app._show_info("Perspective correction applied successfully!")
@@ -608,6 +609,7 @@ class WallSetupScreen:
                 original_image_path=self.photo_path,
                 corrected_image=final_photo,
                 corner_points=self.corner_points,
+                rect_bounds=self.rect_bounds,
                 color="#FFFFFF",  # Not used for photos
                 real_width_cm=self.wall_width_cm,
                 real_height_cm=self.wall_height_cm,
