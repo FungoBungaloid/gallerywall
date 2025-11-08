@@ -3,6 +3,8 @@ Frame and Mat Configuration Data Models
 """
 from dataclasses import dataclass, field
 from typing import Optional
+from datetime import datetime
+import uuid
 
 
 @dataclass
@@ -94,4 +96,47 @@ class FrameConfig:
             mat_shadow_opacity=data.get('mat_shadow_opacity', 0.2),
             mat_shadow_offset_x=data.get('mat_shadow_offset_x', 1.0),
             mat_shadow_offset_y=data.get('mat_shadow_offset_y', 1.0)
+        )
+
+
+@dataclass
+class FrameTemplate:
+    """Saved frame configuration template for reuse"""
+    template_id: str
+    name: str
+    description: str
+    frame_config: FrameConfig
+    created_date: str
+    modified_date: str
+
+    def __post_init__(self):
+        """Initialize with defaults if needed"""
+        if not self.template_id:
+            self.template_id = str(uuid.uuid4())
+        if not self.created_date:
+            self.created_date = datetime.now().isoformat()
+        if not self.modified_date:
+            self.modified_date = datetime.now().isoformat()
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization"""
+        return {
+            'template_id': self.template_id,
+            'name': self.name,
+            'description': self.description,
+            'frame_config': self.frame_config.to_dict(),
+            'created_date': self.created_date,
+            'modified_date': self.modified_date
+        }
+
+    @staticmethod
+    def from_dict(data: dict) -> 'FrameTemplate':
+        """Create FrameTemplate from dictionary"""
+        return FrameTemplate(
+            template_id=data.get('template_id', str(uuid.uuid4())),
+            name=data['name'],
+            description=data.get('description', ''),
+            frame_config=FrameConfig.from_dict(data['frame_config']),
+            created_date=data.get('created_date', datetime.now().isoformat()),
+            modified_date=data.get('modified_date', datetime.now().isoformat())
         )
