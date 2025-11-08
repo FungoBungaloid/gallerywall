@@ -775,10 +775,55 @@ class ArrangementWorkspaceScreen:
             self.drag_start_y = event.y
             return
 
-        # Find clicked artwork
+        # Find clicked artwork - use larger search area
+        items = self.canvas.find_overlapping(event.x - 2, event.y - 2, event.x + 2, event.y + 2)
         artwork_items = [i for i in items if "artwork" in self.canvas.gettags(i)]
 
-        if artwork_items:
+        # If not found with small area, try checking all artwork positions directly
+        if not artwork_items:
+            offset_x = self.pan_offset_x
+            offset_y = self.pan_offset_y
+
+            for placed in self.app.current_workspace.placed_artworks:
+                artwork = next((a for a in self.app.artworks if a.art_id == placed.artwork_id), None)
+                if not artwork:
+                    continue
+
+                # Calculate artwork dimensions and position
+                if artwork.frame_config:
+                    width_cm, height_cm = FrameRenderer.calculate_total_dimensions(
+                        artwork.real_width_cm,
+                        artwork.real_height_cm,
+                        artwork.frame_config
+                    )
+                else:
+                    width_cm = artwork.real_width_cm
+                    height_cm = artwork.real_height_cm
+
+                x_px = offset_x + real_to_pixels(placed.x, self.scale)
+                y_px = offset_y + real_to_pixels(placed.y, self.scale)
+                w_px = real_to_pixels(width_cm, self.scale)
+                h_px = real_to_pixels(height_cm, self.scale)
+
+                # Check if click is within artwork bounds
+                if (x_px <= event.x <= x_px + w_px and y_px <= event.y <= y_px + h_px):
+                    # Check for Ctrl key (multi-select)
+                    if event.state & 0x0004:  # Ctrl is held
+                        if placed in self.selected_placed:
+                            self.selected_placed.remove(placed)
+                        else:
+                            self.selected_placed.append(placed)
+                    else:
+                        self.selected_placed = [placed]
+
+                    self.dragging_item = placed
+                    self.drag_start_x = event.x
+                    self.drag_start_y = event.y
+                    self._update_selection_info()
+                    self._render_workspace()
+                    return
+
+        elif artwork_items:
             # Get the topmost artwork item
             item = artwork_items[-1]
 
@@ -1474,16 +1519,9 @@ class ArrangementWorkspaceScreen:
         if not file_path:
             return
 
-        # Calculate dimensions
-        if settings['size_mode'] == "dpi":
-            output_width, output_height = ExportRenderer.calculate_export_dimensions(
-                self.app.current_wall.real_width_cm,
-                self.app.current_wall.real_height_cm,
-                settings['dpi']
-            )
-        else:  # custom
-            output_width = settings['width']
-            output_height = settings['height']
+        # Get dimensions
+        output_width = settings['width']
+        output_height = settings['height']
 
         # Export
         success = ExportRenderer.export_workspace(
@@ -1588,66 +1626,28 @@ class ExportDialog:
         self.quality_slider.configure(command=self._on_quality_changed)
         self.quality_frame.pack_forget()  # Hide initially for PNG
 
-        # Size mode selection
+        # Resolution settings
         size_frame = ctk.CTkFrame(main_frame)
         size_frame.pack(fill="x", pady=10)
 
         ctk.CTkLabel(size_frame, text="Resolution:", font=("Arial", 12, "bold")).pack(anchor="w", padx=5, pady=5)
 
-        self.size_mode_var = ctk.StringVar(value="dpi")
-
-        dpi_radio = ctk.CTkRadioButton(
-            size_frame,
-            text="By DPI (for printing)",
-            variable=self.size_mode_var,
-            value="dpi",
-            command=self._on_size_mode_changed
-        )
-        dpi_radio.pack(anchor="w", padx=10, pady=2)
-
-        custom_radio = ctk.CTkRadioButton(
-            size_frame,
-            text="Custom dimensions",
-            variable=self.size_mode_var,
-            value="custom",
-            command=self._on_size_mode_changed
-        )
-        custom_radio.pack(anchor="w", padx=10, pady=2)
-
-        # DPI options
-        self.dpi_frame = ctk.CTkFrame(size_frame)
-        self.dpi_frame.pack(fill="x", padx=10, pady=5)
-
-        dpi_presets = ctk.CTkFrame(self.dpi_frame)
-        dpi_presets.pack(fill="x")
-
-        self.dpi_var = ctk.IntVar(value=150)
-
-        for dpi, label in [(72, "Screen (72)"), (150, "Print (150)"), (300, "High Print (300)")]:
-            ctk.CTkRadioButton(
-                dpi_presets,
-                text=label,
-                variable=self.dpi_var,
-                value=dpi,
-                command=self._update_preview
-            ).pack(side="left", padx=5)
-
-        # Custom dimensions
-        self.custom_frame = ctk.CTkFrame(size_frame)
-        self.custom_frame.pack(fill="x", padx=10, pady=5)
-
-        dim_inputs = ctk.CTkFrame(self.custom_frame)
-        dim_inputs.pack(fill="x")
+        dim_inputs = ctk.CTkFrame(size_frame)
+        dim_inputs.pack(fill="x", padx=10, pady=5)
 
         ctk.CTkLabel(dim_inputs, text="Width:", width=50).pack(side="left", padx=2)
         self.width_var = ctk.IntVar(value=3840)
-        ctk.CTkEntry(dim_inputs, textvariable=self.width_var, width=80).pack(side="left", padx=2)
+        width_entry = ctk.CTkEntry(dim_inputs, textvariable=self.width_var, width=100)
+        width_entry.pack(side="left", padx=2)
+        width_entry.bind("<KeyRelease>", lambda e: self._update_preview())
 
-        ctk.CTkLabel(dim_inputs, text="Height:", width=50).pack(side="left", padx=5)
+        ctk.CTkLabel(dim_inputs, text="px    Height:", width=80).pack(side="left", padx=5)
         self.height_var = ctk.IntVar(value=2160)
-        ctk.CTkEntry(dim_inputs, textvariable=self.height_var, width=80).pack(side="left", padx=2)
+        height_entry = ctk.CTkEntry(dim_inputs, textvariable=self.height_var, width=100)
+        height_entry.pack(side="left", padx=2)
+        height_entry.bind("<KeyRelease>", lambda e: self._update_preview())
 
-        self.custom_frame.pack_forget()  # Hide initially
+        ctk.CTkLabel(dim_inputs, text="px").pack(side="left", padx=2)
 
         # Preview info
         preview_frame = ctk.CTkFrame(main_frame)
@@ -1698,28 +1698,19 @@ class ExportDialog:
         self.quality_label.configure(text=f"{int(value)}%")
         self._update_preview()
 
-    def _on_size_mode_changed(self):
-        """Handle size mode change"""
-        if self.size_mode_var.get() == "dpi":
-            self.dpi_frame.pack(fill="x", padx=10, pady=5)
-            self.custom_frame.pack_forget()
-        else:
-            self.dpi_frame.pack_forget()
-            self.custom_frame.pack(fill="x", padx=10, pady=5)
-        self._update_preview()
-
     def _update_preview(self):
         """Update preview information"""
-        # Calculate dimensions
-        if self.size_mode_var.get() == "dpi":
-            width, height = ExportRenderer.calculate_export_dimensions(
-                self.wall.real_width_cm,
-                self.wall.real_height_cm,
-                self.dpi_var.get()
-            )
-        else:
+        # Get dimensions
+        try:
             width = self.width_var.get()
             height = self.height_var.get()
+        except:
+            width = 3840
+            height = 2160
+
+        if width <= 0 or height <= 0:
+            width = 3840
+            height = 2160
 
         # Estimate file size (rough approximation)
         pixels = width * height
@@ -1742,22 +1733,13 @@ class ExportDialog:
 
     def _export(self):
         """Confirm export"""
-        # Calculate final dimensions
-        if self.size_mode_var.get() == "dpi":
-            width, height = ExportRenderer.calculate_export_dimensions(
-                self.wall.real_width_cm,
-                self.wall.real_height_cm,
-                self.dpi_var.get()
-            )
-        else:
-            width = self.width_var.get()
-            height = self.height_var.get()
+        # Get final dimensions
+        width = self.width_var.get()
+        height = self.height_var.get()
 
         self.result = {
             "format": self.format_var.get(),
             "quality": self.quality_var.get(),
-            "size_mode": self.size_mode_var.get(),
-            "dpi": self.dpi_var.get(),
             "width": width,
             "height": height
         }
