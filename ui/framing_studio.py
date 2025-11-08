@@ -113,11 +113,21 @@ class FramingStudioScreen:
         title = ctk.CTkLabel(parent, text="Preview", font=("Arial", 16, "bold"))
         title.pack(pady=10)
 
-        # Preview canvas
-        self.preview_label = ctk.CTkLabel(parent, text="")
+        # Preview canvas with background for better visibility
+        preview_frame = ctk.CTkFrame(parent, fg_color="#1a1a1a")
+        preview_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        self.preview_label = ctk.CTkLabel(
+            preview_frame,
+            text="Select artwork to preview",
+            font=("Arial", 12),
+            text_color="gray"
+        )
         self.preview_label.pack(fill="both", expand=True, padx=20, pady=20)
 
-        self._update_preview()
+        # Initial preview
+        if self.selected_artwork:
+            self._update_preview()
 
     def _setup_controls(self, parent):
         """Set up framing controls"""
@@ -321,60 +331,77 @@ class FramingStudioScreen:
     def _update_preview(self):
         """Update preview with current frame configuration"""
         if not self.selected_artwork:
+            self.preview_label.configure(
+                text="Select artwork to preview",
+                image=None,
+                text_color="gray"
+            )
+            return
+
+        # Check if artwork image exists
+        artwork_image = self.app.artwork_images.get(self.selected_artwork.art_id)
+        if artwork_image is None:
+            self.preview_label.configure(
+                text=f"Image not found for:\n{self.selected_artwork.name}",
+                image=None,
+                text_color="red"
+            )
             return
 
         try:
             # Get frame parameters
-            frame_width = float(self.frame_width_entry.get())
-            mat_width = float(self.mat_width_entry.get()) if self.mat_enabled_var.get() else 0
+            frame_width = float(self.frame_width_entry.get()) if hasattr(self, 'frame_width_entry') else 2.0
+            mat_width = float(self.mat_width_entry.get()) if hasattr(self, 'mat_width_entry') and self.mat_enabled_var.get() else 0
 
             # Create frame config
             mat_config = None
-            if self.mat_enabled_var.get() and mat_width > 0:
+            if hasattr(self, 'mat_enabled_var') and self.mat_enabled_var.get() and mat_width > 0:
                 mat_config = MatConfig(
                     top_width_cm=mat_width,
                     bottom_width_cm=mat_width,
                     left_width_cm=mat_width,
                     right_width_cm=mat_width,
-                    color=self.mat_color
+                    color=self.mat_color if hasattr(self, 'mat_color') else "#FFFFFF"
                 )
 
             frame_config = FrameConfig(
                 mat=mat_config,
                 frame_width_cm=frame_width,
-                frame_color=self.frame_color,
-                frame_shadow_enabled=self.frame_shadow_var.get(),
-                mat_shadow_enabled=self.mat_shadow_var.get()
+                frame_color=self.frame_color if hasattr(self, 'frame_color') else "#000000",
+                frame_shadow_enabled=self.frame_shadow_var.get() if hasattr(self, 'frame_shadow_var') else True,
+                mat_shadow_enabled=self.mat_shadow_var.get() if hasattr(self, 'mat_shadow_var') else True
             )
 
-            # Render preview
-            artwork_image = self.app.artwork_images.get(self.selected_artwork.art_id)
-            if artwork_image is not None:
-                # Use moderate scale for preview
-                scale = 10.0  # 10 pixels per cm
+            # Use moderate scale for preview
+            scale = 10.0  # 10 pixels per cm
 
-                framed_img = FrameRenderer.render_framed_artwork(
-                    artwork_image,
-                    self.selected_artwork.real_width_cm,
-                    self.selected_artwork.real_height_cm,
-                    frame_config,
-                    scale
-                )
+            framed_img = FrameRenderer.render_framed_artwork(
+                artwork_image,
+                self.selected_artwork.real_width_cm,
+                self.selected_artwork.real_height_cm,
+                frame_config,
+                scale
+            )
 
-                # Resize for display if too large
-                max_size = 400
-                if framed_img.width > max_size or framed_img.height > max_size:
-                    ratio = min(max_size / framed_img.width, max_size / framed_img.height)
-                    new_size = (int(framed_img.width * ratio), int(framed_img.height * ratio))
-                    framed_img = framed_img.resize(new_size, Image.LANCZOS)
+            # Resize for display if too large
+            max_size = 500
+            if framed_img.width > max_size or framed_img.height > max_size:
+                ratio = min(max_size / framed_img.width, max_size / framed_img.height)
+                new_size = (int(framed_img.width * ratio), int(framed_img.height * ratio))
+                framed_img = framed_img.resize(new_size, Image.Resampling.LANCZOS)
 
-                # Convert to PhotoImage and display
-                photo = ImageTk.PhotoImage(framed_img)
-                self.preview_label.configure(image=photo, text="")
-                self.preview_label.image = photo  # Keep a reference
+            # Convert to PhotoImage and display
+            photo = ImageTk.PhotoImage(framed_img)
+            self.preview_label.configure(image=photo, text="")
+            self.preview_label.image = photo  # Keep a reference
 
-        except ValueError:
-            pass
+        except Exception as e:
+            print(f"Error updating preview: {e}")
+            self.preview_label.configure(
+                text=f"Error rendering preview:\n{str(e)}",
+                image=None,
+                text_color="red"
+            )
 
     def _apply_frame_config(self):
         """Apply current frame configuration to selected artwork"""
