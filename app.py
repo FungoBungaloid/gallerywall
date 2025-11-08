@@ -183,6 +183,94 @@ class GalleryWallApp:
         self._clear_screen()
         self.current_screen = ArrangementWorkspaceScreen(self, self.main_container)
 
+    def create_new_workspace(self, name: str = None) -> Workspace:
+        """
+        Create a new workspace
+
+        Args:
+            name: Optional name for the workspace
+
+        Returns:
+            The created workspace
+        """
+        if not name:
+            name = f"Arrangement {len(self.workspaces) + 1}"
+
+        workspace = Workspace.create_new(
+            name=name,
+            wall_id=self.current_wall.wall_id if self.current_wall else ""
+        )
+
+        self.workspaces.append(workspace)
+        self.current_workspace = workspace
+        return workspace
+
+    def duplicate_workspace(self, workspace: Workspace, new_name: str = None) -> Workspace:
+        """
+        Create a duplicate of an existing workspace
+
+        Args:
+            workspace: Workspace to duplicate
+            new_name: Optional name for the new workspace
+
+        Returns:
+            The duplicated workspace
+        """
+        if not new_name:
+            new_name = f"{workspace.name} (Copy)"
+
+        # Create new workspace from the original's dict
+        workspace_dict = workspace.to_dict()
+        workspace_dict['workspace_id'] = ""  # Will be auto-generated
+        workspace_dict['name'] = new_name
+
+        new_workspace = Workspace.from_dict(workspace_dict)
+        self.workspaces.append(new_workspace)
+        return new_workspace
+
+    def switch_workspace(self, workspace: Workspace):
+        """
+        Switch to a different workspace
+
+        Args:
+            workspace: Workspace to switch to
+        """
+        self.current_workspace = workspace
+
+    def delete_workspace(self, workspace: Workspace) -> bool:
+        """
+        Delete a workspace
+
+        Args:
+            workspace: Workspace to delete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if workspace in self.workspaces:
+            self.workspaces.remove(workspace)
+
+            # If we deleted the current workspace, switch to another
+            if self.current_workspace == workspace:
+                if self.workspaces:
+                    self.current_workspace = self.workspaces[0]
+                else:
+                    # Create a new default workspace
+                    self.create_new_workspace()
+
+            return True
+        return False
+
+    def rename_workspace(self, workspace: Workspace, new_name: str):
+        """
+        Rename a workspace
+
+        Args:
+            workspace: Workspace to rename
+            new_name: New name for the workspace
+        """
+        workspace.name = new_name
+
     def _clear_screen(self):
         """Clear current screen"""
         for widget in self.main_container.winfo_children():

@@ -229,6 +229,67 @@ class ArrangementWorkspaceScreen:
 
     def _setup_sidebar(self, parent):
         """Set up sidebar with artwork library"""
+        # Workspace management section
+        workspace_frame = ctk.CTkFrame(parent)
+        workspace_frame.pack(fill="x", padx=5, pady=(5, 10))
+
+        ctk.CTkLabel(workspace_frame, text="Workspace:", font=("Arial", 10, "bold")).pack(anchor="w", padx=5, pady=(5, 2))
+
+        # Workspace selector
+        workspace_names = [w.name for w in self.app.workspaces] if self.app.workspaces else ["No workspaces"]
+        current_name = self.app.current_workspace.name if self.app.current_workspace else ""
+
+        self.workspace_var = ctk.StringVar(value=current_name if current_name else "")
+        self.workspace_dropdown = ctk.CTkOptionMenu(
+            workspace_frame,
+            variable=self.workspace_var,
+            values=workspace_names,
+            command=self._on_workspace_changed,
+            width=170
+        )
+        self.workspace_dropdown.pack(fill="x", padx=5, pady=2)
+
+        # Workspace action buttons
+        workspace_btn_frame = ctk.CTkFrame(workspace_frame)
+        workspace_btn_frame.pack(fill="x", padx=5, pady=5)
+
+        btn_new_workspace = ctk.CTkButton(
+            workspace_btn_frame,
+            text="➕",
+            width=30,
+            command=self._new_workspace,
+            fg_color="#4CAF50"
+        )
+        btn_new_workspace.pack(side="left", padx=1)
+
+        btn_duplicate_workspace = ctk.CTkButton(
+            workspace_btn_frame,
+            text="📋",
+            width=30,
+            command=self._duplicate_workspace
+        )
+        btn_duplicate_workspace.pack(side="left", padx=1)
+
+        btn_rename_workspace = ctk.CTkButton(
+            workspace_btn_frame,
+            text="✏️",
+            width=30,
+            command=self._rename_workspace
+        )
+        btn_rename_workspace.pack(side="left", padx=1)
+
+        btn_delete_workspace = ctk.CTkButton(
+            workspace_btn_frame,
+            text="🗑️",
+            width=30,
+            command=self._delete_workspace,
+            fg_color="#F44336"
+        )
+        btn_delete_workspace.pack(side="left", padx=1)
+
+        # Separator
+        ctk.CTkFrame(parent, height=2, fg_color="gray").pack(fill="x", padx=10, pady=5)
+
         title = ctk.CTkLabel(parent, text="Artwork Library", font=("Arial", 12, "bold"))
         title.pack(pady=10)
 
@@ -1159,8 +1220,170 @@ class ArrangementWorkspaceScreen:
         else:
             self.btn_redo.configure(state="disabled", text="↷ Redo")
 
+    def _on_workspace_changed(self, workspace_name: str):
+        """Handle workspace selection change"""
+        # Find the workspace
+        for workspace in self.app.workspaces:
+            if workspace.name == workspace_name:
+                # Save current workspace state first
+                if self.app.current_workspace:
+                    self.app.current_workspace.grid_enabled = self.grid_var.get()
+                    self.app.current_workspace.grid_spacing_cm = config.DEFAULT_GRID_SPACING_CM
+                    self.app.current_workspace.guidelines = self.guidelines.copy()
+                    self.app.current_workspace.show_measurements = self.show_measurements
+                    self.app.current_workspace.zoom_level = self.zoom
+                    self.app.current_workspace.pan_offset_x = self.pan_offset_x
+                    self.app.current_workspace.pan_offset_y = self.pan_offset_y
+
+                # Switch to new workspace
+                self.app.switch_workspace(workspace)
+
+                # Restore workspace state
+                self.grid_var.set(workspace.grid_enabled)
+                self.guidelines = workspace.guidelines.copy() if workspace.guidelines else []
+                self.show_measurements = workspace.show_measurements
+                self.zoom = workspace.zoom_level
+                self.pan_offset_x = workspace.pan_offset_x
+                self.pan_offset_y = workspace.pan_offset_y
+
+                # Clear selection and undo history
+                self.selected_placed = []
+                self.undo_manager.clear()
+
+                # Re-render
+                self._render_workspace()
+                self._update_undo_redo_buttons()
+                break
+
+    def _new_workspace(self):
+        """Create a new workspace"""
+        from tkinter import simpledialog
+
+        name = simpledialog.askstring(
+            "New Workspace",
+            "Enter a name for the new workspace:",
+            parent=self.parent
+        )
+
+        if not name:
+            return
+
+        # Create new workspace
+        new_workspace = self.app.create_new_workspace(name)
+
+        # Refresh dropdown
+        self._refresh_workspace_list()
+        self.workspace_var.set(new_workspace.name)
+
+        # Clear and render
+        self.selected_placed = []
+        self.guidelines = []
+        self.undo_manager.clear()
+        self._render_workspace()
+        self._update_undo_redo_buttons()
+
+    def _duplicate_workspace(self):
+        """Duplicate current workspace"""
+        if not self.app.current_workspace:
+            return
+
+        from tkinter import simpledialog
+
+        name = simpledialog.askstring(
+            "Duplicate Workspace",
+            "Enter a name for the duplicated workspace:",
+            parent=self.parent,
+            initialvalue=f"{self.app.current_workspace.name} (Copy)"
+        )
+
+        if not name:
+            return
+
+        # Duplicate workspace
+        new_workspace = self.app.duplicate_workspace(self.app.current_workspace, name)
+
+        # Refresh dropdown
+        self._refresh_workspace_list()
+        self.workspace_var.set(new_workspace.name)
+
+        self.app._show_info(f"Workspace duplicated as '{name}'")
+
+    def _rename_workspace(self):
+        """Rename current workspace"""
+        if not self.app.current_workspace:
+            return
+
+        from tkinter import simpledialog
+
+        new_name = simpledialog.askstring(
+            "Rename Workspace",
+            "Enter a new name for the workspace:",
+            parent=self.parent,
+            initialvalue=self.app.current_workspace.name
+        )
+
+        if not new_name:
+            return
+
+        # Rename
+        self.app.rename_workspace(self.app.current_workspace, new_name)
+
+        # Refresh dropdown
+        self._refresh_workspace_list()
+        self.workspace_var.set(new_name)
+
+        self.app._show_info(f"Workspace renamed to '{new_name}'")
+
+    def _delete_workspace(self):
+        """Delete current workspace"""
+        if not self.app.current_workspace:
+            return
+
+        if len(self.app.workspaces) == 1:
+            self.app._show_error("Cannot delete the last workspace")
+            return
+
+        from tkinter import messagebox
+
+        if not messagebox.askyesno(
+            "Confirm Delete",
+            f"Delete workspace '{self.app.current_workspace.name}'?\n\nThis cannot be undone."
+        ):
+            return
+
+        # Delete
+        if self.app.delete_workspace(self.app.current_workspace):
+            # Refresh dropdown
+            self._refresh_workspace_list()
+            if self.app.current_workspace:
+                self.workspace_var.set(self.app.current_workspace.name)
+
+            # Clear and render
+            self.selected_placed = []
+            self.undo_manager.clear()
+            self._render_workspace()
+            self._update_undo_redo_buttons()
+
+            self.app._show_info("Workspace deleted")
+
+    def _refresh_workspace_list(self):
+        """Refresh workspace dropdown list"""
+        if hasattr(self, 'workspace_dropdown'):
+            workspace_names = [w.name for w in self.app.workspaces] if self.app.workspaces else ["No workspaces"]
+            self.workspace_dropdown.configure(values=workspace_names)
+
     def _save_project(self):
         """Save project"""
+        # Save current workspace state before saving
+        if self.app.current_workspace:
+            self.app.current_workspace.grid_enabled = self.grid_var.get()
+            self.app.current_workspace.grid_spacing_cm = config.DEFAULT_GRID_SPACING_CM
+            self.app.current_workspace.guidelines = self.guidelines.copy()
+            self.app.current_workspace.show_measurements = self.show_measurements
+            self.app.current_workspace.zoom_level = self.zoom
+            self.app.current_workspace.pan_offset_x = self.pan_offset_x
+            self.app.current_workspace.pan_offset_y = self.pan_offset_y
+
         self.app.save_project()
 
     def _export_image(self):
