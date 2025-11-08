@@ -878,13 +878,13 @@ class ArrangementWorkspaceScreen:
             return
 
         if self.dragging_item:
-            # Calculate delta
+            # Calculate delta in pixels
             dx_px = event.x - self.drag_start_x
             dy_px = event.y - self.drag_start_y
 
-            # Convert to real-world units
-            dx_cm = pixels_to_real(dx_px, self.scale)
-            dy_cm = pixels_to_real(dy_px, self.scale)
+            # Convert to real-world units (scale is pixels per cm)
+            dx_cm = dx_px / self.scale if self.scale > 0 else 0
+            dy_cm = dy_px / self.scale if self.scale > 0 else 0
 
             # Move all selected items
             for placed in self.selected_placed:
