@@ -338,40 +338,28 @@ class ArtEditorScreen:
         # Start with original
         result = self.original_photo.copy()
 
-        # Apply perspective correction
+        # Apply perspective correction if corners have been modified
         if self.corner_points and len(self.corner_points) == 4:
-            height, width = result.shape[:2]
-            # Check if corners are not default (indicating user wants correction)
-            default_corners = [
-                (0, 0), (width, 0), (width, height), (0, height)
-            ]
-            # Check if corners are significantly different from default
-            is_corrected = any(
-                abs(self.corner_points[i][0] - default_corners[i][0]) > 20 or
-                abs(self.corner_points[i][1] - default_corners[i][1]) > 20
-                for i in range(4)
-            )
+            # Always apply the perspective transform based on the corner points
+            src_points = np.float32(self.corner_points)
 
-            if is_corrected:
-                src_points = np.float32(self.corner_points)
+            # Calculate output dimensions based on the quadrilateral
+            width_top = np.linalg.norm(np.array(self.corner_points[0]) - np.array(self.corner_points[1]))
+            width_bottom = np.linalg.norm(np.array(self.corner_points[3]) - np.array(self.corner_points[2]))
+            width_out = int(max(width_top, width_bottom))
 
-                # Calculate output dimensions based on the quadrilateral
-                width_top = np.linalg.norm(np.array(self.corner_points[0]) - np.array(self.corner_points[1]))
-                width_bottom = np.linalg.norm(np.array(self.corner_points[3]) - np.array(self.corner_points[2]))
-                width_out = int(max(width_top, width_bottom))
+            height_left = np.linalg.norm(np.array(self.corner_points[0]) - np.array(self.corner_points[3]))
+            height_right = np.linalg.norm(np.array(self.corner_points[1]) - np.array(self.corner_points[2]))
+            height_out = int(max(height_left, height_right))
 
-                height_left = np.linalg.norm(np.array(self.corner_points[0]) - np.array(self.corner_points[3]))
-                height_right = np.linalg.norm(np.array(self.corner_points[1]) - np.array(self.corner_points[2]))
-                height_out = int(max(height_left, height_right))
+            dst_points = np.float32([
+                [0, 0],
+                [width_out, 0],
+                [width_out, height_out],
+                [0, height_out]
+            ])
 
-                dst_points = np.float32([
-                    [0, 0],
-                    [width_out, 0],
-                    [width_out, height_out],
-                    [0, height_out]
-                ])
-
-                result = apply_perspective_correction(result, src_points, dst_points, (width_out, height_out))
+            result = apply_perspective_correction(result, src_points, dst_points, (width_out, height_out))
 
         # Apply crop
         if self.crop_box:
@@ -757,7 +745,7 @@ class ArtEditorScreen:
             )
 
     def _draw_crop_markers(self, offset_x, offset_y):
-        """Draw crop box"""
+        """Draw crop box with corner handles"""
         if not self.crop_box:
             return
 
@@ -769,18 +757,51 @@ class ArtEditorScreen:
         canvas_x2 = offset_x + x2 * self.canvas_scale
         canvas_y2 = offset_y + y2 * self.canvas_scale
 
-        # Draw crop rectangle
+        # Draw semi-transparent overlay outside crop area
+        # Top
+        self.edit_canvas.create_rectangle(
+            offset_x, offset_y,
+            offset_x + self.preview_image.width(), canvas_y1,
+            fill="#000000",
+            stipple="gray50",
+            tags="crop_overlay"
+        )
+        # Bottom
+        self.edit_canvas.create_rectangle(
+            offset_x, canvas_y2,
+            offset_x + self.preview_image.width(), offset_y + self.preview_image.height(),
+            fill="#000000",
+            stipple="gray50",
+            tags="crop_overlay"
+        )
+        # Left
+        self.edit_canvas.create_rectangle(
+            offset_x, canvas_y1,
+            canvas_x1, canvas_y2,
+            fill="#000000",
+            stipple="gray50",
+            tags="crop_overlay"
+        )
+        # Right
+        self.edit_canvas.create_rectangle(
+            canvas_x2, canvas_y1,
+            offset_x + self.preview_image.width(), canvas_y2,
+            fill="#000000",
+            stipple="gray50",
+            tags="crop_overlay"
+        )
+
+        # Draw crop rectangle border
         self.edit_canvas.create_rectangle(
             canvas_x1, canvas_y1,
             canvas_x2, canvas_y2,
             outline="#00FF00",
-            width=2,
-            dash=(5, 5),
+            width=3,
             tags="crop_box"
         )
 
-        # Draw corner handles
-        handle_size = 10
+        # Draw corner handles - larger and more visible
+        handle_size = 12
         corners = [
             (canvas_x1, canvas_y1, "nw"),
             (canvas_x2, canvas_y1, "ne"),
@@ -789,12 +810,13 @@ class ArtEditorScreen:
         ]
 
         for cx, cy, tag in corners:
-            self.edit_canvas.create_rectangle(
-                cx - handle_size//2, cy - handle_size//2,
-                cx + handle_size//2, cy + handle_size//2,
+            # Outer circle
+            self.edit_canvas.create_oval(
+                cx - handle_size, cy - handle_size,
+                cx + handle_size, cy + handle_size,
                 fill="#00FF00",
                 outline="white",
-                width=2,
+                width=3,
                 tags=("crop_handle", f"crop_{tag}")
             )
 
@@ -820,7 +842,8 @@ class ArtEditorScreen:
                 canvas_x2 = self.canvas_offset_x + x2 * self.canvas_scale
                 canvas_y2 = self.canvas_offset_y + y2 * self.canvas_scale
 
-                handle_size = 15
+                # Larger click radius for easier grabbing
+                handle_size = 20
                 corners = [
                     (canvas_x1, canvas_y1, "nw"),
                     (canvas_x2, canvas_y1, "ne"),
@@ -829,7 +852,8 @@ class ArtEditorScreen:
                 ]
 
                 for cx, cy, tag in corners:
-                    if abs(event.x - cx) < handle_size and abs(event.y - cy) < handle_size:
+                    dist = ((event.x - cx) ** 2 + (event.y - cy) ** 2) ** 0.5
+                    if dist < handle_size:
                         self.dragging_crop = tag
                         return
 
@@ -860,6 +884,7 @@ class ArtEditorScreen:
 
             x1, y1, x2, y2 = self.crop_box
 
+            # Update the appropriate corner
             if self.dragging_crop == "nw":
                 x1, y1 = img_x, img_y
             elif self.dragging_crop == "ne":
@@ -869,11 +894,25 @@ class ArtEditorScreen:
             elif self.dragging_crop == "sw":
                 x1, y2 = img_x, img_y
 
-            # Ensure x1 < x2 and y1 < y2
-            if x1 > x2:
-                x1, x2 = x2, x1
-            if y1 > y2:
-                y1, y2 = y2, y1
+            # Ensure minimum crop size (10 pixels)
+            min_size = 10
+            if x2 - x1 < min_size:
+                if self.dragging_crop in ["nw", "sw"]:
+                    x1 = x2 - min_size
+                else:
+                    x2 = x1 + min_size
+
+            if y2 - y1 < min_size:
+                if self.dragging_crop in ["nw", "ne"]:
+                    y1 = y2 - min_size
+                else:
+                    y2 = y1 + min_size
+
+            # Clamp again after adjustments
+            x1 = max(0, min(width - min_size, x1))
+            y1 = max(0, min(height - min_size, y1))
+            x2 = max(min_size, min(width, x2))
+            y2 = max(min_size, min(height, y2))
 
             self.crop_box = (x1, y1, x2, y2)
             self._update_canvas_preview()
@@ -889,8 +928,12 @@ class ArtEditorScreen:
         # Reset crop box to full corrected image
         height, width = self.edited_photo.shape[:2]
         self.crop_box = (0, 0, width, height)
-        self._update_canvas_preview()
-        self.app._show_info("Perspective correction applied")
+
+        # Switch to crop mode to show the result
+        self.mode_var.set("crop")
+        self._on_mode_changed()
+
+        self.app._show_info("Perspective correction applied! Now in crop mode.")
 
     def _apply_crop(self):
         """Apply crop"""
