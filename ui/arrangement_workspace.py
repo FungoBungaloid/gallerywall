@@ -514,14 +514,19 @@ class ArrangementWorkspaceScreen:
         offset_y = self.pan_offset_y
 
         # Render wall background
-        self.canvas.create_rectangle(
-            offset_x, offset_y,
-            offset_x + wall_width_px, offset_y + wall_height_px,
-            fill=self.app.current_wall.color,
-            outline="#999999",
-            width=2,
-            tags="wall"
-        )
+        if self.app.current_wall.type == "photo" and self.app.current_wall.corrected_image is not None:
+            # Render wall photo as background
+            self._render_wall_photo(offset_x, offset_y, wall_width_px, wall_height_px)
+        else:
+            # Render solid color background
+            self.canvas.create_rectangle(
+                offset_x, offset_y,
+                offset_x + wall_width_px, offset_y + wall_height_px,
+                fill=self.app.current_wall.color,
+                outline="#999999",
+                width=2,
+                tags="wall"
+            )
 
         # Render grid if enabled
         if self.grid_var.get():
@@ -537,6 +542,54 @@ class ArrangementWorkspaceScreen:
         # Render measurements if enabled
         if self.measurements_var.get():
             self._render_measurements(offset_x, offset_y)
+
+    def _render_wall_photo(self, offset_x, offset_y, wall_width_px, wall_height_px):
+        """Render wall photo as background"""
+        try:
+            import cv2
+            from PIL import Image, ImageTk
+
+            # Convert wall image to PIL
+            wall_img = cv2.cvtColor(self.app.current_wall.corrected_image, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(wall_img)
+
+            # Resize to fit canvas dimensions
+            pil_img = pil_img.resize((int(wall_width_px), int(wall_height_px)), Image.Resampling.LANCZOS)
+
+            # Store reference to prevent garbage collection
+            if not hasattr(self, 'wall_photo_tk'):
+                self.wall_photo_tk = {}
+
+            self.wall_photo_tk[self.zoom] = ImageTk.PhotoImage(pil_img)
+
+            # Create image on canvas
+            self.canvas.create_image(
+                offset_x, offset_y,
+                image=self.wall_photo_tk[self.zoom],
+                anchor="nw",
+                tags="wall"
+            )
+
+            # Add border
+            self.canvas.create_rectangle(
+                offset_x, offset_y,
+                offset_x + wall_width_px, offset_y + wall_height_px,
+                outline="#999999",
+                width=2,
+                tags="wall"
+            )
+
+        except Exception as e:
+            print(f"Error rendering wall photo: {e}")
+            # Fallback to color rectangle
+            self.canvas.create_rectangle(
+                offset_x, offset_y,
+                offset_x + wall_width_px, offset_y + wall_height_px,
+                fill="#CCCCCC",
+                outline="#999999",
+                width=2,
+                tags="wall"
+            )
 
     def _render_grid(self, offset_x, offset_y, wall_width_px, wall_height_px):
         """Render grid lines"""
