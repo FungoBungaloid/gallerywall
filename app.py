@@ -287,6 +287,11 @@ class GalleryWallApp:
         from tkinter import messagebox
         messagebox.showinfo("Info", message)
 
+    def _show_confirm(self, message: str) -> bool:
+        """Show confirmation dialog"""
+        from tkinter import messagebox
+        return messagebox.askyesno("Confirm", message)
+
     def run(self):
         """Start the application"""
         self.root.mainloop()
