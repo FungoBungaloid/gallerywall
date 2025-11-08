@@ -65,6 +65,9 @@ class WallSetupScreen:
         # Right panel contents
         self._setup_preview(right_panel)
 
+        # Show initial mode controls (after both panels are set up)
+        self._on_type_changed()
+
     def _setup_controls(self, parent):
         """Set up control panel"""
         # Title
@@ -218,9 +221,6 @@ class WallSetupScreen:
             width=100
         )
         btn_save.pack(side="right", padx=2, pady=5)
-
-        # Show initial mode controls
-        self._on_type_changed()
 
     def _setup_preview(self, parent):
         """Set up preview panel"""
