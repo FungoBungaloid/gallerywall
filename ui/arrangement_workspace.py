@@ -43,7 +43,7 @@ class ArrangementWorkspaceScreen:
         self.pan_offset_y = 20
         self.space_pressed = False
 
-        self.canvas_items = {}  # placed_artwork -> (canvas_id, photo) mapping
+        self.canvas_items = {}  # id(placed_artwork) -> (canvas_id, photo) mapping
         self.rendered_frames = {}  # cache key -> PIL Image
         self.selected_placed = []  # List of selected PlacedArtwork (for multi-select)
 
@@ -753,7 +753,7 @@ class ArrangementWorkspaceScreen:
         )
 
         # Store reference to prevent garbage collection
-        self.canvas_items[placed] = (item_id, photo)
+        self.canvas_items[id(placed)] = (item_id, photo)
 
     def _on_canvas_click(self, event):
         """Handle canvas click"""
@@ -828,7 +828,8 @@ class ArrangementWorkspaceScreen:
             item = artwork_items[-1]
 
             # Find which placed artwork this is
-            for placed, (canvas_id, _) in self.canvas_items.items():
+            for placed in self.workspace.placed_artworks:
+                canvas_id, _ = self.canvas_items.get(id(placed), (None, None))
                 if canvas_id == item:
                     # Check for Ctrl key (multi-select)
                     if event.state & 0x0004:  # Ctrl is held
@@ -1163,7 +1164,8 @@ class ArrangementWorkspaceScreen:
 
         if artwork_items:
             # Find which placed artwork this is
-            for placed, (canvas_id, _) in self.canvas_items.items():
+            for placed in self.workspace.placed_artworks:
+                canvas_id, _ = self.canvas_items.get(id(placed), (None, None))
                 if canvas_id == artwork_items[-1]:
                     if placed not in self.selected_placed:
                         self.selected_placed = [placed]

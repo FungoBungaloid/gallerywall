@@ -352,14 +352,7 @@ class ArtEditorScreen:
             height_right = np.linalg.norm(np.array(self.corner_points[1]) - np.array(self.corner_points[2]))
             height_out = int(max(height_left, height_right))
 
-            dst_points = np.float32([
-                [0, 0],
-                [width_out, 0],
-                [width_out, height_out],
-                [0, height_out]
-            ])
-
-            result = apply_perspective_correction(result, src_points, dst_points, (width_out, height_out))
+            result = apply_perspective_correction(result, src_points, width_out, height_out)
 
         # Apply crop
         if self.crop_box:

@@ -64,6 +64,22 @@ class FramingStudioScreen:
                 frame_color="#000000"
             )
 
+            # Reset UI to defaults
+            if hasattr(self, 'mat_enabled_var'):
+                self.mat_enabled_var.set(False)
+                self.mat_width_entry.delete(0, 'end')
+                self.mat_width_entry.insert(0, "3.0")
+                self.mat_color = "#FFFFFF"
+                self.mat_color_btn.configure(fg_color=self.mat_color)
+
+                self.frame_width_entry.delete(0, 'end')
+                self.frame_width_entry.insert(0, "2.0")
+                self.frame_color = "#000000"
+                self.frame_color_btn.configure(fg_color=self.frame_color)
+
+                self.frame_shadow_var.set(True)
+                self.mat_shadow_var.set(True)
+
     def _setup_ui(self):
         """Set up the UI"""
         main_frame = ctk.CTkFrame(self.parent)
