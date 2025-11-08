@@ -6,6 +6,105 @@ import cv2
 from typing import List, Tuple
 
 
+def apply_perspective_correction_full_image(
+    image: np.ndarray,
+    corner_points: List[Tuple[float, float]],
+    rect_width: int,
+    rect_height: int
+) -> Tuple[np.ndarray, Tuple[int, int, int, int]]:
+    """
+    Apply perspective correction to entire image while preserving context.
+
+    This transforms the entire image based on the 4 corner points, but instead of
+    cropping to just the rectangle, it preserves the full transformed image with
+    whitespace/padding as needed.
+
+    Args:
+        image: Input image as numpy array
+        corner_points: List of 4 (x, y) tuples representing the wall corners
+                      Order: top-left, top-right, bottom-right, bottom-left
+        rect_width: Desired width of the corrected rectangle (in pixels)
+        rect_height: Desired height of the corrected rectangle (in pixels)
+
+    Returns:
+        Tuple of (corrected_image, rect_bounds) where rect_bounds is (x, y, width, height)
+        of the corrected rectangle within the output image
+    """
+    if len(corner_points) != 4:
+        raise ValueError("Exactly 4 corner points required for perspective correction")
+
+    # Convert corner points to numpy array
+    src_points = np.float32(corner_points)
+
+    # Define destination points for the rectangle (starting at origin)
+    dst_rect_points = np.float32([
+        [0, 0],
+        [rect_width - 1, 0],
+        [rect_width - 1, rect_height - 1],
+        [0, rect_height - 1]
+    ])
+
+    # Calculate perspective transform matrix
+    matrix = cv2.getPerspectiveTransform(src_points, dst_rect_points)
+
+    # Get original image corners
+    h, w = image.shape[:2]
+    image_corners = np.float32([
+        [0, 0],
+        [w - 1, 0],
+        [w - 1, h - 1],
+        [0, h - 1]
+    ])
+
+    # Transform all corners of the original image to see where they end up
+    # Add homogeneous coordinate
+    corners_homogeneous = np.hstack([image_corners, np.ones((4, 1))])
+    transformed_corners = matrix @ corners_homogeneous.T
+
+    # Convert from homogeneous coordinates
+    transformed_corners = transformed_corners[:2, :] / transformed_corners[2, :]
+    transformed_corners = transformed_corners.T
+
+    # Find bounding box of transformed image
+    min_x = np.min(transformed_corners[:, 0])
+    max_x = np.max(transformed_corners[:, 0])
+    min_y = np.min(transformed_corners[:, 1])
+    max_y = np.max(transformed_corners[:, 1])
+
+    # Calculate output size (with some padding)
+    padding = 10
+    output_width = int(np.ceil(max_x - min_x)) + 2 * padding
+    output_height = int(np.ceil(max_y - min_y)) + 2 * padding
+
+    # Adjust the transform matrix to shift everything into positive coordinates
+    offset_x = padding - min_x
+    offset_y = padding - min_y
+
+    translation_matrix = np.array([
+        [1, 0, offset_x],
+        [0, 1, offset_y],
+        [0, 0, 1]
+    ], dtype=np.float32)
+
+    final_matrix = translation_matrix @ matrix
+
+    # Apply perspective warp to entire image
+    corrected = cv2.warpPerspective(
+        image,
+        final_matrix,
+        (output_width, output_height),
+        flags=cv2.INTER_LANCZOS4,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(255, 255, 255)  # White padding
+    )
+
+    # Calculate where the corrected rectangle is in the output image
+    rect_x = int(offset_x)
+    rect_y = int(offset_y)
+
+    return corrected, (rect_x, rect_y, rect_width, rect_height)
+
+
 def apply_perspective_correction(
     image: np.ndarray,
     corner_points: List[Tuple[float, float]],

@@ -17,6 +17,7 @@ class Wall:
     original_image_path: Optional[str] = None
     corrected_image: Optional[np.ndarray] = None
     corner_points: Optional[List[Tuple[float, float]]] = None  # 4 corners for correction
+    rect_bounds: Optional[Tuple[int, int, int, int]] = None  # (x, y, width, height) of wall rect in corrected image
 
     # For template type
     color: str = "#FFFFFF"  # Hex color
@@ -60,6 +61,7 @@ class Wall:
             'type': self.type,
             'original_image_path': self.original_image_path,
             'corner_points': self.corner_points,
+            'rect_bounds': self.rect_bounds,
             'color': self.color,
             'real_width_cm': self.real_width_cm,
             'real_height_cm': self.real_height_cm,
@@ -72,11 +74,16 @@ class Wall:
     @staticmethod
     def from_dict(data: dict) -> 'Wall':
         """Create Wall from dictionary"""
+        rect_bounds = data.get('rect_bounds')
+        if rect_bounds and isinstance(rect_bounds, list):
+            rect_bounds = tuple(rect_bounds)
+
         return Wall(
             wall_id=data['wall_id'],
             type=data['type'],
             original_image_path=data.get('original_image_path'),
             corner_points=data.get('corner_points'),
+            rect_bounds=rect_bounds,
             color=data.get('color', '#FFFFFF'),
             real_width_cm=data['real_width_cm'],
             real_height_cm=data['real_height_cm'],
