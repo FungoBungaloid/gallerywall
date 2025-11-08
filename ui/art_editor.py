@@ -1,15 +1,16 @@
 """
-Art Editor Screen - Enhanced with Image Previews
+Art Editor Screen - Enhanced with Advanced Editing Tools
 """
 import customtkinter as ctk
 from tkinter import filedialog, Canvas
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageEnhance, ImageFilter
 import os
 import cv2
 import numpy as np
 from models.artwork import Artwork
 from processors.image_processor import ImageProcessor
 from utils.file_manager import FileManager
+from utils.perspective import apply_perspective_correction
 import config
 
 
@@ -32,6 +33,27 @@ class ArtEditorScreen:
         self.thumbnail_images = {}  # art_id -> PhotoImage for thumbnails
         self.preview_image = None  # Current preview PhotoImage
 
+        # Editing state
+        self.original_photo = None  # Current artwork being edited (numpy array)
+        self.edited_photo = None  # With perspective/crop applied
+        self.corner_points = None  # For perspective correction
+        self.crop_box = None  # (x1, y1, x2, y2) for crop
+        self.dragging_point = None
+        self.dragging_crop = None  # 'nw', 'ne', 'sw', 'se', 'move', None
+
+        # White balance adjustments
+        self.wb_temperature = 0.0  # -100 to 100
+        self.wb_tint = 0.0  # -100 to 100
+        self.wb_brightness = 0.0  # -100 to 100
+        self.wb_contrast = 0.0  # -100 to 100
+        self.wb_saturation = 0.0  # -100 to 100
+
+        # Canvas state
+        self.canvas_scale = 1.0
+
+        # Edit mode
+        self.edit_mode = "perspective"  # 'perspective', 'crop', 'adjust'
+
         self._setup_ui()
 
     def _setup_ui(self):
@@ -45,7 +67,7 @@ class ArtEditorScreen:
         left_panel.pack(side="left", fill="y", padx=10, pady=10)
         left_panel.pack_propagate(False)
 
-        # Center/right (preview and editing area)
+        # Center/right (editing area)
         right_panel = ctk.CTkFrame(main_frame)
         right_panel.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
@@ -255,167 +277,778 @@ class ArtEditorScreen:
             edit_btn.pack(side="right", padx=5, pady=5)
 
     def _edit_artwork(self, artwork: Artwork):
-        """Edit artwork dimensions and properties"""
+        """Edit artwork with full editing tools"""
         self.selected_artwork = artwork
 
-        # Clear info panel
+        # Load original image
+        if artwork.art_id in self.app.artwork_images:
+            self.original_photo = self.app.artwork_images[artwork.art_id].copy()
+        else:
+            self.app._show_error("Image not found for this artwork")
+            return
+
+        # Initialize editing state
+        height, width = self.original_photo.shape[:2]
+
+        # Load saved editing state or initialize defaults
+        if artwork.corner_points and len(artwork.corner_points) == 4:
+            self.corner_points = artwork.corner_points.copy()
+        else:
+            # Default corners (full image)
+            margin = 20
+            self.corner_points = [
+                (margin, margin),  # Top-left
+                (width - margin, margin),  # Top-right
+                (width - margin, height - margin),  # Bottom-right
+                (margin, height - margin)  # Bottom-left
+            ]
+
+        if artwork.crop_box:
+            self.crop_box = artwork.crop_box
+        else:
+            self.crop_box = (0, 0, width, height)
+
+        # Load white balance settings
+        if artwork.white_balance_adjustments:
+            self.wb_temperature = artwork.white_balance_adjustments.get('temperature', 0.0)
+            self.wb_tint = artwork.white_balance_adjustments.get('tint', 0.0)
+            self.wb_brightness = artwork.white_balance_adjustments.get('brightness', 0.0)
+            self.wb_contrast = artwork.white_balance_adjustments.get('contrast', 0.0)
+            self.wb_saturation = artwork.white_balance_adjustments.get('saturation', 0.0)
+        else:
+            self.wb_temperature = 0.0
+            self.wb_tint = 0.0
+            self.wb_brightness = 0.0
+            self.wb_contrast = 0.0
+            self.wb_saturation = 0.0
+
+        # Apply current edits
+        self._apply_current_edits()
+
+        # Clear info panel and show editor
         for widget in self.info_panel.winfo_children():
             widget.destroy()
 
-        # Main container
-        edit_frame = ctk.CTkFrame(self.info_panel)
-        edit_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        self._setup_editor_ui()
+
+    def _apply_current_edits(self):
+        """Apply perspective correction and crop to get edited image"""
+        # Start with original
+        result = self.original_photo.copy()
+
+        # Apply perspective correction
+        if self.corner_points and len(self.corner_points) == 4:
+            height, width = result.shape[:2]
+            # Check if corners are not default (indicating user wants correction)
+            default_corners = [
+                (0, 0), (width, 0), (width, height), (0, height)
+            ]
+            # Check if corners are significantly different from default
+            is_corrected = any(
+                abs(self.corner_points[i][0] - default_corners[i][0]) > 20 or
+                abs(self.corner_points[i][1] - default_corners[i][1]) > 20
+                for i in range(4)
+            )
+
+            if is_corrected:
+                src_points = np.float32(self.corner_points)
+
+                # Calculate output dimensions based on the quadrilateral
+                width_top = np.linalg.norm(np.array(self.corner_points[0]) - np.array(self.corner_points[1]))
+                width_bottom = np.linalg.norm(np.array(self.corner_points[3]) - np.array(self.corner_points[2]))
+                width_out = int(max(width_top, width_bottom))
+
+                height_left = np.linalg.norm(np.array(self.corner_points[0]) - np.array(self.corner_points[3]))
+                height_right = np.linalg.norm(np.array(self.corner_points[1]) - np.array(self.corner_points[2]))
+                height_out = int(max(height_left, height_right))
+
+                dst_points = np.float32([
+                    [0, 0],
+                    [width_out, 0],
+                    [width_out, height_out],
+                    [0, height_out]
+                ])
+
+                result = apply_perspective_correction(result, src_points, dst_points, (width_out, height_out))
+
+        # Apply crop
+        if self.crop_box:
+            x1, y1, x2, y2 = self.crop_box
+            x1, y1 = max(0, int(x1)), max(0, int(y1))
+            x2, y2 = min(result.shape[1], int(x2)), min(result.shape[0], int(y2))
+            if x2 > x1 and y2 > y1:
+                result = result[y1:y2, x1:x2]
+
+        self.edited_photo = result
+
+    def _setup_editor_ui(self):
+        """Set up the editor UI"""
+        main_container = ctk.CTkFrame(self.info_panel)
+        main_container.pack(fill="both", expand=True)
 
         # Title
+        title_frame = ctk.CTkFrame(main_container)
+        title_frame.pack(fill="x", padx=10, pady=5)
+
         title = ctk.CTkLabel(
-            edit_frame,
-            text=f"Edit Artwork",
-            font=("Arial", 20, "bold")
+            title_frame,
+            text=f"Editing: {self.selected_artwork.name}",
+            font=("Arial", 16, "bold")
         )
-        title.pack(pady=(10, 5))
+        title.pack(side="left", padx=5)
 
-        # Image preview
-        preview_frame = ctk.CTkFrame(edit_frame, fg_color="#1a1a1a")
-        preview_frame.pack(pady=15, padx=20, fill="both", expand=True)
-
-        # Load and display image preview
-        if artwork.art_id in self.app.artwork_images:
-            self._show_preview(preview_frame, self.app.artwork_images[artwork.art_id])
-
-        # Controls frame
-        controls_frame = ctk.CTkFrame(edit_frame)
-        controls_frame.pack(fill="x", padx=20, pady=10)
-
-        # Name
-        name_label = ctk.CTkLabel(controls_frame, text="Name:", font=("Arial", 11, "bold"))
-        name_label.pack(pady=(10, 5))
-
-        name_entry = ctk.CTkEntry(controls_frame, width=400, height=35)
-        name_entry.insert(0, artwork.name)
-        name_entry.pack(pady=5)
-
-        # Dimensions
-        dim_label = ctk.CTkLabel(controls_frame, text="Real-World Dimensions:", font=("Arial", 11, "bold"))
-        dim_label.pack(pady=(15, 5))
-
-        dim_inputs_frame = ctk.CTkFrame(controls_frame, fg_color="transparent")
-        dim_inputs_frame.pack(pady=5)
-
-        # Width (cm)
-        width_frame = ctk.CTkFrame(dim_inputs_frame, fg_color="transparent")
-        width_frame.pack(side="left", padx=10)
-
-        ctk.CTkLabel(width_frame, text="Width (cm):", font=("Arial", 10)).pack()
-        width_cm_entry = ctk.CTkEntry(width_frame, width=120)
-        width_cm_entry.insert(0, f"{artwork.real_width_cm:.1f}")
-        width_cm_entry.pack(pady=2)
-
-        # Height (cm)
-        height_frame = ctk.CTkFrame(dim_inputs_frame, fg_color="transparent")
-        height_frame.pack(side="left", padx=10)
-
-        ctk.CTkLabel(height_frame, text="Height (cm):", font=("Arial", 10)).pack()
-        height_cm_entry = ctk.CTkEntry(height_frame, width=120)
-        height_cm_entry.insert(0, f"{artwork.real_height_cm:.1f}")
-        height_cm_entry.pack(pady=2)
-
-        # Info about inches
-        inch_info = ctk.CTkLabel(
-            controls_frame,
-            text=f"({artwork.real_width_inches:.1f}\" × {artwork.real_height_inches:.1f}\")",
-            font=("Arial", 9),
-            text_color="gray"
-        )
-        inch_info.pack(pady=5)
-
-        # Save button
-        def save_changes():
-            artwork.name = name_entry.get()
-            try:
-                width = float(width_cm_entry.get())
-                height = float(height_cm_entry.get())
-                if width > 0 and height > 0:
-                    artwork.update_dimensions_from_cm(width, height)
-                    self._refresh_artwork_list()
-                    self.app._show_info(f"Changes saved for '{artwork.name}'")
-                else:
-                    self.app._show_error("Dimensions must be positive")
-            except ValueError:
-                self.app._show_error("Invalid dimensions - please enter numbers")
-
-        btn_frame = ctk.CTkFrame(controls_frame, fg_color="transparent")
-        btn_frame.pack(pady=20)
-
-        btn_save = ctk.CTkButton(
-            btn_frame,
-            text="💾 Save Changes",
-            command=save_changes,
-            width=150,
-            height=40,
-            fg_color="#4CAF50",
-            font=("Arial", 12, "bold")
-        )
-        btn_save.pack(side="left", padx=5)
-
-        btn_delete = ctk.CTkButton(
-            btn_frame,
-            text="🗑️ Delete",
-            command=lambda: self._delete_artwork(artwork),
+        # Reset button
+        btn_reset = ctk.CTkButton(
+            title_frame,
+            text="🔄 Reset All",
+            command=self._reset_edits,
             width=100,
-            height=40,
             fg_color="#F44336"
         )
-        btn_delete.pack(side="left", padx=5)
+        btn_reset.pack(side="right", padx=5)
 
-    def _show_preview(self, parent, image_array: np.ndarray):
-        """Show image preview in the panel"""
-        try:
-            # Convert to PIL
-            img_rgb = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(img_rgb)
+        # Mode selector
+        mode_frame = ctk.CTkFrame(main_container)
+        mode_frame.pack(fill="x", padx=10, pady=5)
 
-            # Calculate size to fit in preview (max 500px)
-            max_size = 500
-            img_width, img_height = pil_img.size
+        ctk.CTkLabel(mode_frame, text="Edit Mode:", font=("Arial", 11, "bold")).pack(side="left", padx=5)
 
-            if img_width > max_size or img_height > max_size:
-                if img_width > img_height:
-                    new_width = max_size
-                    new_height = int(img_height * (max_size / img_width))
-                else:
-                    new_height = max_size
-                    new_width = int(img_width * (max_size / img_height))
+        self.mode_var = ctk.StringVar(value="perspective")
 
-                pil_img = pil_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        ctk.CTkRadioButton(
+            mode_frame,
+            text="Perspective",
+            variable=self.mode_var,
+            value="perspective",
+            command=self._on_mode_changed
+        ).pack(side="left", padx=5)
 
-            # Convert to PhotoImage
-            self.preview_image = ImageTk.PhotoImage(pil_img)
+        ctk.CTkRadioButton(
+            mode_frame,
+            text="Crop",
+            variable=self.mode_var,
+            value="crop",
+            command=self._on_mode_changed
+        ).pack(side="left", padx=5)
 
-            # Display in label
-            preview_label = ctk.CTkLabel(
-                parent,
-                image=self.preview_image,
-                text=""
-            )
-            preview_label.pack(expand=True, pady=20)
+        ctk.CTkRadioButton(
+            mode_frame,
+            text="Adjustments",
+            variable=self.mode_var,
+            value="adjust",
+            command=self._on_mode_changed
+        ).pack(side="left", padx=5)
 
-            # Image info
-            info_label = ctk.CTkLabel(
-                parent,
-                text=f"Original size: {img_width} × {img_height} pixels",
-                font=("Arial", 9),
+        # Canvas area
+        canvas_frame = ctk.CTkFrame(main_container, fg_color="#1a1a1a")
+        canvas_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.edit_canvas = Canvas(
+            canvas_frame,
+            bg="#2a2a2a",
+            highlightthickness=1,
+            highlightbackground="#444"
+        )
+        self.edit_canvas.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Bind mouse events
+        self.edit_canvas.bind("<Button-1>", self._on_canvas_click)
+        self.edit_canvas.bind("<B1-Motion>", self._on_canvas_drag)
+        self.edit_canvas.bind("<ButtonRelease-1>", self._on_canvas_release)
+
+        # Controls panel
+        self.controls_frame = ctk.CTkFrame(main_container)
+        self.controls_frame.pack(fill="x", padx=10, pady=5)
+
+        self._setup_controls()
+
+        # Bottom controls (dimensions, save, delete)
+        bottom_frame = ctk.CTkFrame(main_container)
+        bottom_frame.pack(fill="x", padx=10, pady=5)
+
+        # Name
+        name_section = ctk.CTkFrame(bottom_frame)
+        name_section.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(name_section, text="Name:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+        self.name_entry = ctk.CTkEntry(name_section, width=300)
+        self.name_entry.insert(0, self.selected_artwork.name)
+        self.name_entry.pack(side="left", padx=5)
+
+        # Dimensions
+        dim_section = ctk.CTkFrame(bottom_frame)
+        dim_section.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(dim_section, text="Dimensions:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+
+        ctk.CTkLabel(dim_section, text="Width (cm):").pack(side="left", padx=2)
+        self.width_entry = ctk.CTkEntry(dim_section, width=80)
+        self.width_entry.insert(0, f"{self.selected_artwork.real_width_cm:.1f}")
+        self.width_entry.pack(side="left", padx=2)
+
+        ctk.CTkLabel(dim_section, text="Height (cm):").pack(side="left", padx=5)
+        self.height_entry = ctk.CTkEntry(dim_section, width=80)
+        self.height_entry.insert(0, f"{self.selected_artwork.real_height_cm:.1f}")
+        self.height_entry.pack(side="left", padx=2)
+
+        # Buttons
+        btn_section = ctk.CTkFrame(bottom_frame)
+        btn_section.pack(fill="x", pady=10)
+
+        ctk.CTkButton(
+            btn_section,
+            text="💾 Save Changes",
+            command=self._save_changes,
+            width=150,
+            height=35,
+            fg_color="#4CAF50",
+            font=("Arial", 12, "bold")
+        ).pack(side="left", padx=5)
+
+        ctk.CTkButton(
+            btn_section,
+            text="🗑️ Delete",
+            command=lambda: self._delete_artwork(self.selected_artwork),
+            width=100,
+            height=35,
+            fg_color="#F44336"
+        ).pack(side="left", padx=5)
+
+        # Render initial preview
+        self._update_canvas_preview()
+
+    def _setup_controls(self):
+        """Set up mode-specific controls"""
+        # Clear existing controls
+        for widget in self.controls_frame.winfo_children():
+            widget.destroy()
+
+        if self.mode_var.get() == "perspective":
+            ctk.CTkLabel(
+                self.controls_frame,
+                text="Drag the corner points to correct perspective distortion",
+                font=("Arial", 10),
                 text_color="gray"
-            )
-            info_label.pack(pady=(0, 10))
+            ).pack(pady=10)
 
-        except Exception as e:
-            print(f"Error showing preview: {e}")
-            error_label = ctk.CTkLabel(
-                parent,
-                text="Error loading preview",
-                text_color="red"
+            ctk.CTkButton(
+                self.controls_frame,
+                text="Apply Correction",
+                command=self._apply_perspective,
+                width=150,
+                fg_color="#4CAF50"
+            ).pack(pady=5)
+
+        elif self.mode_var.get() == "crop":
+            ctk.CTkLabel(
+                self.controls_frame,
+                text="Drag corners to adjust crop area",
+                font=("Arial", 10),
+                text_color="gray"
+            ).pack(pady=10)
+
+            ctk.CTkButton(
+                self.controls_frame,
+                text="Apply Crop",
+                command=self._apply_crop,
+                width=150,
+                fg_color="#4CAF50"
+            ).pack(pady=5)
+
+        elif self.mode_var.get() == "adjust":
+            # White balance sliders
+            ctk.CTkLabel(
+                self.controls_frame,
+                text="Color & Tone Adjustments",
+                font=("Arial", 11, "bold")
+            ).pack(pady=(10, 5))
+
+            # Temperature
+            temp_frame = ctk.CTkFrame(self.controls_frame)
+            temp_frame.pack(fill="x", padx=10, pady=2)
+            ctk.CTkLabel(temp_frame, text="Temperature:", width=100).pack(side="left")
+            self.temp_slider = ctk.CTkSlider(
+                temp_frame, from_=-100, to=100,
+                command=self._on_wb_change
             )
-            error_label.pack(expand=True)
+            self.temp_slider.set(self.wb_temperature)
+            self.temp_slider.pack(side="left", fill="x", expand=True, padx=5)
+            self.temp_label = ctk.CTkLabel(temp_frame, text=f"{self.wb_temperature:.0f}", width=40)
+            self.temp_label.pack(side="left")
+
+            # Tint
+            tint_frame = ctk.CTkFrame(self.controls_frame)
+            tint_frame.pack(fill="x", padx=10, pady=2)
+            ctk.CTkLabel(tint_frame, text="Tint:", width=100).pack(side="left")
+            self.tint_slider = ctk.CTkSlider(
+                tint_frame, from_=-100, to=100,
+                command=self._on_wb_change
+            )
+            self.tint_slider.set(self.wb_tint)
+            self.tint_slider.pack(side="left", fill="x", expand=True, padx=5)
+            self.tint_label = ctk.CTkLabel(tint_frame, text=f"{self.wb_tint:.0f}", width=40)
+            self.tint_label.pack(side="left")
+
+            # Brightness
+            bright_frame = ctk.CTkFrame(self.controls_frame)
+            bright_frame.pack(fill="x", padx=10, pady=2)
+            ctk.CTkLabel(bright_frame, text="Brightness:", width=100).pack(side="left")
+            self.bright_slider = ctk.CTkSlider(
+                bright_frame, from_=-100, to=100,
+                command=self._on_wb_change
+            )
+            self.bright_slider.set(self.wb_brightness)
+            self.bright_slider.pack(side="left", fill="x", expand=True, padx=5)
+            self.bright_label = ctk.CTkLabel(bright_frame, text=f"{self.wb_brightness:.0f}", width=40)
+            self.bright_label.pack(side="left")
+
+            # Contrast
+            contrast_frame = ctk.CTkFrame(self.controls_frame)
+            contrast_frame.pack(fill="x", padx=10, pady=2)
+            ctk.CTkLabel(contrast_frame, text="Contrast:", width=100).pack(side="left")
+            self.contrast_slider = ctk.CTkSlider(
+                contrast_frame, from_=-100, to=100,
+                command=self._on_wb_change
+            )
+            self.contrast_slider.set(self.wb_contrast)
+            self.contrast_slider.pack(side="left", fill="x", expand=True, padx=5)
+            self.contrast_label = ctk.CTkLabel(contrast_frame, text=f"{self.wb_contrast:.0f}", width=40)
+            self.contrast_label.pack(side="left")
+
+            # Saturation
+            sat_frame = ctk.CTkFrame(self.controls_frame)
+            sat_frame.pack(fill="x", padx=10, pady=2)
+            ctk.CTkLabel(sat_frame, text="Saturation:", width=100).pack(side="left")
+            self.sat_slider = ctk.CTkSlider(
+                sat_frame, from_=-100, to=100,
+                command=self._on_wb_change
+            )
+            self.sat_slider.set(self.wb_saturation)
+            self.sat_slider.pack(side="left", fill="x", expand=True, padx=5)
+            self.sat_label = ctk.CTkLabel(sat_frame, text=f"{self.wb_saturation:.0f}", width=40)
+            self.sat_label.pack(side="left")
+
+            ctk.CTkButton(
+                self.controls_frame,
+                text="Reset Adjustments",
+                command=self._reset_white_balance,
+                width=150
+            ).pack(pady=10)
+
+    def _on_mode_changed(self):
+        """Handle mode change"""
+        self.edit_mode = self.mode_var.get()
+        self._setup_controls()
+        self._update_canvas_preview()
+
+    def _update_canvas_preview(self):
+        """Update the canvas preview"""
+        if not hasattr(self, 'edit_canvas'):
+            return
+
+        # Get canvas dimensions
+        canvas_width = self.edit_canvas.winfo_width()
+        canvas_height = self.edit_canvas.winfo_height()
+
+        if canvas_width <= 1:
+            canvas_width = 600
+        if canvas_height <= 1:
+            canvas_height = 400
+
+        # Determine which image to show based on mode
+        if self.mode_var.get() == "perspective":
+            display_img = self.original_photo.copy()
+        elif self.mode_var.get() == "crop":
+            # Show perspective-corrected image for cropping
+            self._apply_current_edits()
+            display_img = self.edited_photo.copy()
+        else:  # adjust
+            # Show final edited image with white balance
+            self._apply_current_edits()
+            display_img = self._apply_white_balance(self.edited_photo)
+
+        # Convert to PIL
+        img_rgb = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+        pil_img = Image.fromarray(img_rgb)
+
+        # Calculate scale to fit canvas
+        img_width, img_height = pil_img.size
+        scale_w = (canvas_width - 40) / img_width
+        scale_h = (canvas_height - 40) / img_height
+        self.canvas_scale = min(scale_w, scale_h, 1.0)
+
+        new_width = int(img_width * self.canvas_scale)
+        new_height = int(img_height * self.canvas_scale)
+
+        pil_img = pil_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+        # Convert to PhotoImage
+        self.preview_image = ImageTk.PhotoImage(pil_img)
+
+        # Clear canvas
+        self.edit_canvas.delete("all")
+
+        # Center image
+        x_offset = (canvas_width - new_width) // 2
+        y_offset = (canvas_height - new_height) // 2
+
+        # Draw image
+        self.edit_canvas.create_image(
+            x_offset, y_offset,
+            image=self.preview_image,
+            anchor="nw",
+            tags="preview"
+        )
+
+        # Draw overlays based on mode
+        if self.mode_var.get() == "perspective":
+            self._draw_perspective_markers(x_offset, y_offset)
+        elif self.mode_var.get() == "crop":
+            self._draw_crop_markers(x_offset, y_offset)
+
+    def _draw_perspective_markers(self, offset_x, offset_y):
+        """Draw corner markers for perspective correction"""
+        if not self.corner_points or len(self.corner_points) != 4:
+            return
+
+        colors = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00"]
+        labels = ["TL", "TR", "BR", "BL"]
+
+        for i, (x, y) in enumerate(self.corner_points):
+            # Convert to canvas coordinates
+            canvas_x = offset_x + x * self.canvas_scale
+            canvas_y = offset_y + y * self.canvas_scale
+
+            # Draw circle
+            radius = 8
+            self.edit_canvas.create_oval(
+                canvas_x - radius, canvas_y - radius,
+                canvas_x + radius, canvas_y + radius,
+                fill=colors[i],
+                outline="white",
+                width=2,
+                tags=("corner", f"corner_{i}")
+            )
+
+            # Draw label
+            self.edit_canvas.create_text(
+                canvas_x, canvas_y,
+                text=labels[i],
+                fill="black",
+                font=("Arial", 8, "bold"),
+                tags=("corner", f"corner_{i}")
+            )
+
+        # Draw lines connecting corners
+        for i in range(4):
+            x1, y1 = self.corner_points[i]
+            x2, y2 = self.corner_points[(i + 1) % 4]
+            self.edit_canvas.create_line(
+                offset_x + x1 * self.canvas_scale,
+                offset_y + y1 * self.canvas_scale,
+                offset_x + x2 * self.canvas_scale,
+                offset_y + y2 * self.canvas_scale,
+                fill="#00FF00",
+                width=2,
+                dash=(5, 5),
+                tags="corner_line"
+            )
+
+    def _draw_crop_markers(self, offset_x, offset_y):
+        """Draw crop box"""
+        if not self.crop_box:
+            return
+
+        x1, y1, x2, y2 = self.crop_box
+
+        # Convert to canvas coordinates
+        canvas_x1 = offset_x + x1 * self.canvas_scale
+        canvas_y1 = offset_y + y1 * self.canvas_scale
+        canvas_x2 = offset_x + x2 * self.canvas_scale
+        canvas_y2 = offset_y + y2 * self.canvas_scale
+
+        # Draw crop rectangle
+        self.edit_canvas.create_rectangle(
+            canvas_x1, canvas_y1,
+            canvas_x2, canvas_y2,
+            outline="#00FF00",
+            width=2,
+            dash=(5, 5),
+            tags="crop_box"
+        )
+
+        # Draw corner handles
+        handle_size = 10
+        corners = [
+            (canvas_x1, canvas_y1, "nw"),
+            (canvas_x2, canvas_y1, "ne"),
+            (canvas_x2, canvas_y2, "se"),
+            (canvas_x1, canvas_y2, "sw")
+        ]
+
+        for cx, cy, tag in corners:
+            self.edit_canvas.create_rectangle(
+                cx - handle_size//2, cy - handle_size//2,
+                cx + handle_size//2, cy + handle_size//2,
+                fill="#00FF00",
+                outline="white",
+                width=2,
+                tags=("crop_handle", f"crop_{tag}")
+            )
+
+    def _on_canvas_click(self, event):
+        """Handle canvas click"""
+        if self.mode_var.get() == "perspective":
+            # Check if clicking on a corner
+            radius = 15
+            for i, (x, y) in enumerate(self.corner_points):
+                canvas_x = (self.edit_canvas.winfo_width() - self.preview_image.width()) // 2 + x * self.canvas_scale
+                canvas_y = (self.edit_canvas.winfo_height() - self.preview_image.height()) // 2 + y * self.canvas_scale
+
+                if abs(event.x - canvas_x) < radius and abs(event.y - canvas_y) < radius:
+                    self.dragging_point = i
+                    return
+
+        elif self.mode_var.get() == "crop":
+            # Check if clicking on crop handles
+            x_offset = (self.edit_canvas.winfo_width() - self.preview_image.width()) // 2
+            y_offset = (self.edit_canvas.winfo_height() - self.preview_image.height()) // 2
+
+            if self.crop_box:
+                x1, y1, x2, y2 = self.crop_box
+                canvas_x1 = x_offset + x1 * self.canvas_scale
+                canvas_y1 = y_offset + y1 * self.canvas_scale
+                canvas_x2 = x_offset + x2 * self.canvas_scale
+                canvas_y2 = y_offset + y2 * self.canvas_scale
+
+                handle_size = 15
+                corners = [
+                    (canvas_x1, canvas_y1, "nw"),
+                    (canvas_x2, canvas_y1, "ne"),
+                    (canvas_x2, canvas_y2, "se"),
+                    (canvas_x1, canvas_y2, "sw")
+                ]
+
+                for cx, cy, tag in corners:
+                    if abs(event.x - cx) < handle_size and abs(event.y - cy) < handle_size:
+                        self.dragging_crop = tag
+                        return
+
+    def _on_canvas_drag(self, event):
+        """Handle canvas drag"""
+        if self.mode_var.get() == "perspective" and self.dragging_point is not None:
+            # Update corner position
+            x_offset = (self.edit_canvas.winfo_width() - self.preview_image.width()) // 2
+            y_offset = (self.edit_canvas.winfo_height() - self.preview_image.height()) // 2
+
+            # Convert to image coordinates
+            img_x = (event.x - x_offset) / self.canvas_scale
+            img_y = (event.y - y_offset) / self.canvas_scale
+
+            # Clamp to image bounds
+            height, width = self.original_photo.shape[:2]
+            img_x = max(0, min(width, img_x))
+            img_y = max(0, min(height, img_y))
+
+            self.corner_points[self.dragging_point] = (img_x, img_y)
+            self._update_canvas_preview()
+
+        elif self.mode_var.get() == "crop" and self.dragging_crop:
+            # Update crop box
+            x_offset = (self.edit_canvas.winfo_width() - self.preview_image.width()) // 2
+            y_offset = (self.edit_canvas.winfo_height() - self.preview_image.height()) // 2
+
+            img_x = (event.x - x_offset) / self.canvas_scale
+            img_y = (event.y - y_offset) / self.canvas_scale
+
+            # Clamp to image bounds
+            height, width = self.edited_photo.shape[:2]
+            img_x = max(0, min(width, img_x))
+            img_y = max(0, min(height, img_y))
+
+            x1, y1, x2, y2 = self.crop_box
+
+            if self.dragging_crop == "nw":
+                x1, y1 = img_x, img_y
+            elif self.dragging_crop == "ne":
+                x2, y1 = img_x, img_y
+            elif self.dragging_crop == "se":
+                x2, y2 = img_x, img_y
+            elif self.dragging_crop == "sw":
+                x1, y2 = img_x, img_y
+
+            # Ensure x1 < x2 and y1 < y2
+            if x1 > x2:
+                x1, x2 = x2, x1
+            if y1 > y2:
+                y1, y2 = y2, y1
+
+            self.crop_box = (x1, y1, x2, y2)
+            self._update_canvas_preview()
+
+    def _on_canvas_release(self, event):
+        """Handle mouse release"""
+        self.dragging_point = None
+        self.dragging_crop = None
+
+    def _apply_perspective(self):
+        """Apply perspective correction"""
+        self._apply_current_edits()
+        # Reset crop box to full corrected image
+        height, width = self.edited_photo.shape[:2]
+        self.crop_box = (0, 0, width, height)
+        self._update_canvas_preview()
+        self.app._show_info("Perspective correction applied")
+
+    def _apply_crop(self):
+        """Apply crop"""
+        self._apply_current_edits()
+        self._update_canvas_preview()
+        self.app._show_info("Crop applied")
+
+    def _apply_white_balance(self, image: np.ndarray) -> np.ndarray:
+        """Apply white balance adjustments to image"""
+        # Convert to PIL for easier adjustment
+        img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        pil_img = Image.fromarray(img_rgb)
+
+        # Apply brightness
+        if self.wb_brightness != 0:
+            factor = 1.0 + (self.wb_brightness / 100.0)
+            enhancer = ImageEnhance.Brightness(pil_img)
+            pil_img = enhancer.enhance(factor)
+
+        # Apply contrast
+        if self.wb_contrast != 0:
+            factor = 1.0 + (self.wb_contrast / 100.0)
+            enhancer = ImageEnhance.Contrast(pil_img)
+            pil_img = enhancer.enhance(factor)
+
+        # Apply saturation
+        if self.wb_saturation != 0:
+            factor = 1.0 + (self.wb_saturation / 100.0)
+            enhancer = ImageEnhance.Color(pil_img)
+            pil_img = enhancer.enhance(factor)
+
+        # Convert back to numpy for temperature and tint
+        result = np.array(pil_img)
+
+        # Apply temperature (shift blue-yellow)
+        if self.wb_temperature != 0:
+            temp_shift = self.wb_temperature / 100.0 * 30
+            result[:, :, 0] = np.clip(result[:, :, 0] + temp_shift, 0, 255)  # R
+            result[:, :, 2] = np.clip(result[:, :, 2] - temp_shift, 0, 255)  # B
+
+        # Apply tint (shift green-magenta)
+        if self.wb_tint != 0:
+            tint_shift = self.wb_tint / 100.0 * 30
+            result[:, :, 1] = np.clip(result[:, :, 1] + tint_shift, 0, 255)  # G
+
+        # Convert back to BGR
+        result = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
+        return result
+
+    def _on_wb_change(self, value=None):
+        """Handle white balance slider change"""
+        if hasattr(self, 'temp_slider'):
+            self.wb_temperature = self.temp_slider.get()
+            self.temp_label.configure(text=f"{self.wb_temperature:.0f}")
+
+        if hasattr(self, 'tint_slider'):
+            self.wb_tint = self.tint_slider.get()
+            self.tint_label.configure(text=f"{self.wb_tint:.0f}")
+
+        if hasattr(self, 'bright_slider'):
+            self.wb_brightness = self.bright_slider.get()
+            self.bright_label.configure(text=f"{self.wb_brightness:.0f}")
+
+        if hasattr(self, 'contrast_slider'):
+            self.wb_contrast = self.contrast_slider.get()
+            self.contrast_label.configure(text=f"{self.wb_contrast:.0f}")
+
+        if hasattr(self, 'sat_slider'):
+            self.wb_saturation = self.sat_slider.get()
+            self.sat_label.configure(text=f"{self.wb_saturation:.0f}")
+
+        self._update_canvas_preview()
+
+    def _reset_white_balance(self):
+        """Reset white balance to defaults"""
+        self.wb_temperature = 0.0
+        self.wb_tint = 0.0
+        self.wb_brightness = 0.0
+        self.wb_contrast = 0.0
+        self.wb_saturation = 0.0
+
+        if hasattr(self, 'temp_slider'):
+            self.temp_slider.set(0)
+            self.tint_slider.set(0)
+            self.bright_slider.set(0)
+            self.contrast_slider.set(0)
+            self.sat_slider.set(0)
+
+        self._update_canvas_preview()
+
+    def _reset_edits(self):
+        """Reset all edits"""
+        height, width = self.original_photo.shape[:2]
+        margin = 20
+        self.corner_points = [
+            (margin, margin),
+            (width - margin, margin),
+            (width - margin, height - margin),
+            (margin, height - margin)
+        ]
+        self.crop_box = (0, 0, width, height)
+        self._reset_white_balance()
+        self._apply_current_edits()
+        self._update_canvas_preview()
+        self.app._show_info("All edits reset")
+
+    def _save_changes(self):
+        """Save all changes to artwork"""
+        if not self.selected_artwork:
+            return
+
+        # Update name
+        self.selected_artwork.name = self.name_entry.get()
+
+        # Update dimensions
+        try:
+            width = float(self.width_entry.get())
+            height = float(self.height_entry.get())
+            if width > 0 and height > 0:
+                self.selected_artwork.update_dimensions_from_cm(width, height)
+            else:
+                self.app._show_error("Dimensions must be positive")
+                return
+        except ValueError:
+            self.app._show_error("Invalid dimensions - please enter numbers")
+            return
+
+        # Save editing state
+        self.selected_artwork.corner_points = self.corner_points.copy()
+        self.selected_artwork.crop_box = self.crop_box
+        self.selected_artwork.white_balance_adjustments = {
+            'temperature': self.wb_temperature,
+            'tint': self.wb_tint,
+            'brightness': self.wb_brightness,
+            'contrast': self.wb_contrast,
+            'saturation': self.wb_saturation
+        }
+
+        # Apply final edits and update artwork image
+        self._apply_current_edits()
+        final_image = self._apply_white_balance(self.edited_photo)
+        self.app.artwork_images[self.selected_artwork.art_id] = final_image
+
+        # Update thumbnail
+        self._create_thumbnail(self.selected_artwork.art_id, final_image)
+
+        # Refresh list
+        self._refresh_artwork_list()
+
+        self.app._show_info(f"Changes saved for '{self.selected_artwork.name}'")
 
     def _delete_artwork(self, artwork: Artwork):
         """Delete an artwork"""
