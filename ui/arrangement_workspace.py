@@ -5,6 +5,7 @@ import customtkinter as ctk
 from tkinter import Canvas, filedialog
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import numpy as np
+from pathlib import Path
 from models.workspace import Workspace, PlacedArtwork
 from processors.frame_renderer import FrameRenderer
 from processors.export_renderer import ExportRenderer
@@ -1387,28 +1388,51 @@ class ArrangementWorkspaceScreen:
         self.app.save_project()
 
     def _export_image(self):
-        """Export workspace to image"""
+        """Export workspace to image with enhanced options"""
         if not self.app.current_workspace:
             return
 
+        # Show export options dialog
+        dialog = ExportDialog(self.parent, self.app.current_wall)
+        self.parent.wait_window(dialog.dialog)
+
+        if not dialog.result:
+            return  # User cancelled
+
+        # Get export settings
+        settings = dialog.result
+
         # Ask for file path
+        default_ext = ".png" if settings['format'] == "PNG" else ".jpg"
+        filetypes = [
+            ("PNG Image", "*.png"),
+            ("JPEG Image", "*.jpg *.jpeg")
+        ] if settings['format'] == "PNG" else [
+            ("JPEG Image", "*.jpg *.jpeg"),
+            ("PNG Image", "*.png")
+        ]
+
         file_path = filedialog.asksaveasfilename(
             title="Export Image",
-            defaultextension=".png",
-            filetypes=[("PNG Image", "*.png"), ("JPEG Image", "*.jpg")]
+            defaultextension=default_ext,
+            filetypes=filetypes
         )
 
         if not file_path:
             return
 
-        # Determine format
-        format = "PNG" if file_path.lower().endswith('.png') else "JPEG"
+        # Calculate dimensions
+        if settings['size_mode'] == "dpi":
+            output_width, output_height = ExportRenderer.calculate_export_dimensions(
+                self.app.current_wall.real_width_cm,
+                self.app.current_wall.real_height_cm,
+                settings['dpi']
+            )
+        else:  # custom
+            output_width = settings['width']
+            output_height = settings['height']
 
-        # Export at high resolution
-        output_width = 3840  # 4K resolution
-        aspect_ratio = self.app.current_wall.real_height_cm / self.app.current_wall.real_width_cm
-        output_height = int(output_width * aspect_ratio)
-
+        # Export
         success = ExportRenderer.export_workspace(
             self.app.current_workspace,
             self.app.current_wall,
@@ -1417,10 +1441,272 @@ class ArrangementWorkspaceScreen:
             output_width,
             output_height,
             file_path,
-            format=format
+            format=settings['format'],
+            quality=settings['quality']
         )
 
         if success:
-            self.app._show_info(f"Image exported successfully at {output_width}x{output_height}!")
+            file_size_mb = Path(file_path).stat().st_size / (1024 * 1024)
+            self.app._show_info(
+                f"Image exported successfully!\n\n"
+                f"Resolution: {output_width}x{output_height}\n"
+                f"Format: {settings['format']}\n"
+                f"Size: {file_size_mb:.1f} MB"
+            )
         else:
             self.app._show_error("Failed to export image")
+
+
+
+class ExportDialog:
+    """Dialog for export options"""
+
+    def __init__(self, parent, wall):
+        """Initialize export dialog"""
+        self.result = None
+        self.wall = wall
+
+        # Create dialog window
+        self.dialog = ctk.CTkToplevel(parent)
+        self.dialog.title("Export Options")
+        self.dialog.geometry("400x550")
+        self.dialog.resizable(False, False)
+
+        # Make it modal
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        self._setup_ui()
+
+    def _setup_ui(self):
+        """Setup the UI"""
+        main_frame = ctk.CTkFrame(self.dialog)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Title
+        title = ctk.CTkLabel(main_frame, text="Export Settings", font=("Arial", 16, "bold"))
+        title.pack(pady=(0, 20))
+
+        # Format selection
+        format_frame = ctk.CTkFrame(main_frame)
+        format_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(format_frame, text="Format:", font=("Arial", 12, "bold")).pack(anchor="w", padx=5, pady=5)
+
+        self.format_var = ctk.StringVar(value="PNG")
+        format_options = ctk.CTkFrame(format_frame)
+        format_options.pack(fill="x", padx=5)
+
+        ctk.CTkRadioButton(
+            format_options,
+            text="PNG (Lossless)",
+            variable=self.format_var,
+            value="PNG",
+            command=self._on_format_changed
+        ).pack(side="left", padx=5)
+
+        ctk.CTkRadioButton(
+            format_options,
+            text="JPEG (Smaller file)",
+            variable=self.format_var,
+            value="JPEG",
+            command=self._on_format_changed
+        ).pack(side="left", padx=5)
+
+        # Quality slider (for JPEG)
+        self.quality_frame = ctk.CTkFrame(format_frame)
+        self.quality_frame.pack(fill="x", padx=5, pady=5)
+
+        ctk.CTkLabel(self.quality_frame, text="JPEG Quality:", font=("Arial", 10)).pack(anchor="w", padx=5)
+
+        self.quality_var = ctk.IntVar(value=95)
+        self.quality_slider = ctk.CTkSlider(
+            self.quality_frame,
+            from_=60,
+            to=100,
+            variable=self.quality_var,
+            number_of_steps=40
+        )
+        self.quality_slider.pack(fill="x", padx=5)
+
+        self.quality_label = ctk.CTkLabel(self.quality_frame, text="95%", font=("Arial", 9))
+        self.quality_label.pack(anchor="e", padx=5)
+
+        self.quality_slider.configure(command=self._on_quality_changed)
+        self.quality_frame.pack_forget()  # Hide initially for PNG
+
+        # Size mode selection
+        size_frame = ctk.CTkFrame(main_frame)
+        size_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(size_frame, text="Resolution:", font=("Arial", 12, "bold")).pack(anchor="w", padx=5, pady=5)
+
+        self.size_mode_var = ctk.StringVar(value="dpi")
+
+        dpi_radio = ctk.CTkRadioButton(
+            size_frame,
+            text="By DPI (for printing)",
+            variable=self.size_mode_var,
+            value="dpi",
+            command=self._on_size_mode_changed
+        )
+        dpi_radio.pack(anchor="w", padx=10, pady=2)
+
+        custom_radio = ctk.CTkRadioButton(
+            size_frame,
+            text="Custom dimensions",
+            variable=self.size_mode_var,
+            value="custom",
+            command=self._on_size_mode_changed
+        )
+        custom_radio.pack(anchor="w", padx=10, pady=2)
+
+        # DPI options
+        self.dpi_frame = ctk.CTkFrame(size_frame)
+        self.dpi_frame.pack(fill="x", padx=10, pady=5)
+
+        dpi_presets = ctk.CTkFrame(self.dpi_frame)
+        dpi_presets.pack(fill="x")
+
+        self.dpi_var = ctk.IntVar(value=150)
+
+        for dpi, label in [(72, "Screen (72)"), (150, "Print (150)"), (300, "High Print (300)")]:
+            ctk.CTkRadioButton(
+                dpi_presets,
+                text=label,
+                variable=self.dpi_var,
+                value=dpi,
+                command=self._update_preview
+            ).pack(side="left", padx=5)
+
+        # Custom dimensions
+        self.custom_frame = ctk.CTkFrame(size_frame)
+        self.custom_frame.pack(fill="x", padx=10, pady=5)
+
+        dim_inputs = ctk.CTkFrame(self.custom_frame)
+        dim_inputs.pack(fill="x")
+
+        ctk.CTkLabel(dim_inputs, text="Width:", width=50).pack(side="left", padx=2)
+        self.width_var = ctk.IntVar(value=3840)
+        ctk.CTkEntry(dim_inputs, textvariable=self.width_var, width=80).pack(side="left", padx=2)
+
+        ctk.CTkLabel(dim_inputs, text="Height:", width=50).pack(side="left", padx=5)
+        self.height_var = ctk.IntVar(value=2160)
+        ctk.CTkEntry(dim_inputs, textvariable=self.height_var, width=80).pack(side="left", padx=2)
+
+        self.custom_frame.pack_forget()  # Hide initially
+
+        # Preview info
+        preview_frame = ctk.CTkFrame(main_frame)
+        preview_frame.pack(fill="x", pady=15)
+
+        ctk.CTkLabel(preview_frame, text="Export Preview:", font=("Arial", 11, "bold")).pack(anchor="w", padx=5)
+
+        self.preview_label = ctk.CTkLabel(
+            preview_frame,
+            text="Resolution: 3840 x 2160\nEstimated size: ~8 MB",
+            font=("Arial", 10),
+            anchor="w",
+            justify="left"
+        )
+        self.preview_label.pack(anchor="w", padx=10, pady=5)
+
+        self._update_preview()
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(main_frame)
+        btn_frame.pack(fill="x", pady=20)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            command=self._cancel,
+            width=120
+        ).pack(side="left", padx=5)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Export",
+            command=self._export,
+            width=120,
+            fg_color="#4CAF50"
+        ).pack(side="right", padx=5)
+
+    def _on_format_changed(self):
+        """Handle format change"""
+        if self.format_var.get() == "JPEG":
+            self.quality_frame.pack(fill="x", padx=5, pady=5)
+        else:
+            self.quality_frame.pack_forget()
+        self._update_preview()
+
+    def _on_quality_changed(self, value):
+        """Handle quality slider change"""
+        self.quality_label.configure(text=f"{int(value)}%")
+        self._update_preview()
+
+    def _on_size_mode_changed(self):
+        """Handle size mode change"""
+        if self.size_mode_var.get() == "dpi":
+            self.dpi_frame.pack(fill="x", padx=10, pady=5)
+            self.custom_frame.pack_forget()
+        else:
+            self.dpi_frame.pack_forget()
+            self.custom_frame.pack(fill="x", padx=10, pady=5)
+        self._update_preview()
+
+    def _update_preview(self):
+        """Update preview information"""
+        # Calculate dimensions
+        if self.size_mode_var.get() == "dpi":
+            width, height = ExportRenderer.calculate_export_dimensions(
+                self.wall.real_width_cm,
+                self.wall.real_height_cm,
+                self.dpi_var.get()
+            )
+        else:
+            width = self.width_var.get()
+            height = self.height_var.get()
+
+        # Estimate file size (rough approximation)
+        pixels = width * height
+        if self.format_var.get() == "PNG":
+            estimated_mb = pixels * 3 / (1024 * 1024)  # ~3 bytes per pixel for PNG
+        else:
+            quality_factor = self.quality_var.get() / 100.0
+            estimated_mb = pixels * 0.5 * quality_factor / (1024 * 1024)  # JPEG compression
+
+        self.preview_label.configure(
+            text=f"Resolution: {width} x {height} px\n"
+                 f"Aspect ratio: {width/height:.2f}\n"
+                 f"Estimated size: ~{estimated_mb:.1f} MB"
+        )
+
+    def _cancel(self):
+        """Cancel export"""
+        self.result = None
+        self.dialog.destroy()
+
+    def _export(self):
+        """Confirm export"""
+        # Calculate final dimensions
+        if self.size_mode_var.get() == "dpi":
+            width, height = ExportRenderer.calculate_export_dimensions(
+                self.wall.real_width_cm,
+                self.wall.real_height_cm,
+                self.dpi_var.get()
+            )
+        else:
+            width = self.width_var.get()
+            height = self.height_var.get()
+
+        self.result = {
+            "format": self.format_var.get(),
+            "quality": self.quality_var.get(),
+            "size_mode": self.size_mode_var.get(),
+            "dpi": self.dpi_var.get(),
+            "width": width,
+            "height": height
+        }
+        self.dialog.destroy()
+
