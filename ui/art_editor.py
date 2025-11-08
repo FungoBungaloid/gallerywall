@@ -36,6 +36,7 @@ class ArtEditorScreen:
         # Editing state
         self.original_photo = None  # Current artwork being edited (numpy array)
         self.edited_photo = None  # With perspective/crop applied
+        self.uncropped_photo = None  # Perspective-corrected but not cropped (for expanding crop box)
         self.corner_points = None  # For perspective correction
         self.crop_box = None  # (x1, y1, x2, y2) for crop
         self.dragging_point = None
@@ -354,6 +355,9 @@ class ArtEditorScreen:
 
             result = apply_perspective_correction(result, src_points, width_out, height_out)
 
+        # Store uncropped image for crop mode reference
+        self.uncropped_photo = result.copy()
+
         # Apply crop
         if self.crop_box:
             x1, y1, x2, y2 = self.crop_box
@@ -642,9 +646,9 @@ class ArtEditorScreen:
         if self.mode_var.get() == "perspective":
             display_img = self.original_photo.copy()
         elif self.mode_var.get() == "crop":
-            # Show perspective-corrected image for cropping
+            # Show uncropped perspective-corrected image for cropping (allows expanding crop)
             self._apply_current_edits()
-            display_img = self.edited_photo.copy()
+            display_img = self.uncropped_photo.copy()
         else:  # adjust
             # Show final edited image with white balance
             self._apply_current_edits()
@@ -870,8 +874,11 @@ class ArtEditorScreen:
             img_x = (event.x - self.canvas_offset_x) / self.canvas_scale
             img_y = (event.y - self.canvas_offset_y) / self.canvas_scale
 
-            # Clamp to image bounds
-            height, width = self.edited_photo.shape[:2]
+            # Clamp to uncropped image bounds (allows expanding crop box)
+            if self.uncropped_photo is not None:
+                height, width = self.uncropped_photo.shape[:2]
+            else:
+                height, width = self.edited_photo.shape[:2]
             img_x = max(0, min(width, img_x))
             img_y = max(0, min(height, img_y))
 

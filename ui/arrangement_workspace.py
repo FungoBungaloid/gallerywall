@@ -828,7 +828,7 @@ class ArrangementWorkspaceScreen:
             item = artwork_items[-1]
 
             # Find which placed artwork this is
-            for placed in self.workspace.placed_artworks:
+            for placed in self.app.current_workspace.placed_artworks:
                 canvas_id, _ = self.canvas_items.get(id(placed), (None, None))
                 if canvas_id == item:
                     # Check for Ctrl key (multi-select)
@@ -1164,7 +1164,7 @@ class ArrangementWorkspaceScreen:
 
         if artwork_items:
             # Find which placed artwork this is
-            for placed in self.workspace.placed_artworks:
+            for placed in self.app.current_workspace.placed_artworks:
                 canvas_id, _ = self.canvas_items.get(id(placed), (None, None))
                 if canvas_id == artwork_items[-1]:
                     if placed not in self.selected_placed:
